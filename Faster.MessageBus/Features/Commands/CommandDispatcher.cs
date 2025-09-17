@@ -53,3 +53,4 @@ public class CommandDispatcher(
     /// <value>The <see cref="INetworkCommandScope"/> implementation.</value>
     public INetworkCommandScope Network { get; } = NetworkCommandScope;
 }
+

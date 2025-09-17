@@ -71,7 +71,7 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     /// <param name="token">The unique token identifying the operation version.</param>
     /// <returns>The result of the completed operation.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public T GetResult(short token) => _core.GetResult(token);
+    public T GetResult(short token) =>  _core.GetResult(token);
 
     /// <summary>
     /// Gets the status of the operation.
@@ -80,6 +80,18 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     /// <returns>The current status of the operation (e.g., Pending, Succeeded, Faulted).</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ValueTaskSourceStatus GetStatus(short token) => _core.GetStatus(token);
+
+    /// <summary>
+    /// Gets whether the pending reply has already been completed (successfully or faulted).
+    /// </summary>
+    public bool IsCompleted
+    {
+        get
+        {
+            // ValueTaskSourceStatus.Pending means not completed; anything else is completed
+            return _core.GetStatus(_core.Version) != ValueTaskSourceStatus.Pending;
+        }
+    }
 
     /// <summary>
     /// Schedules the continuation action that will be invoked when the operation completes.

@@ -30,21 +30,17 @@ public interface IMachineCommandScope
     /// }
     /// </code>
     /// </remarks>
-    IAsyncEnumerable<TResponse> Send<TResponse>(
-    ulong topic,
-    ICommand<TResponse> command,
-    TimeSpan timeout,
-    CancellationToken ct = default);
+    IAsyncEnumerable<TResponse> SendAsync<TResponse>(ICommand<TResponse> command, TimeSpan timeout, CancellationToken ct = default);
 
     /// <summary>
     /// Sends a command to all listening endpoints on the local machine and awaits their completion, without returning any data.
     /// This is suitable for notification-style or "fire-and-await-completion" commands.
     /// </summary>
-    /// <remarks>The method name "SendASync" is unconventional; standard C# naming would be "SendAsync".</remarks>
+    /// <remarks>The method name "SendAsync" is unconventional; standard C# naming would be "SendAsync".</remarks>
     /// <param name="topic">The unique identifier for the command, used for routing.</param>
     /// <param name="command">The command object containing the data to be sent.</param>
     /// <param name="timeout">The maximum time to wait for completion acknowledgments.</param>
     /// <param name="ct">An optional cancellation token to cancel the operation externally.</param>
     /// <returns>A <see cref="Task"/> that completes when all endpoints have acknowledged the command or the operation times out.</returns>
-    Task SendASync(ulong topic, ICommand command, TimeSpan timeout, CancellationToken ct = default);
+    Task SendAsync(ICommand command, TimeSpan timeout, CancellationToken ct = default);
 }

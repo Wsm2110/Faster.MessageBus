@@ -1,9 +1,11 @@
 ﻿using Faster.MessageBus.Features.Commands.Extensions;
 using Faster.MessageBus.Shared;
+using Microsoft.Extensions.Options;
 using NetMQ;
 using NetMQ.Sockets;
 using System.Buffers;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Faster.MessageBus.Features.Commands;
 
@@ -21,6 +23,7 @@ public class CommandServer : IDisposable
     /// The messageHandler responsible for invoking the correct business logic based on the request topic.
     /// </summary>
     private readonly ICommandMessageHandler _messageHandler;
+    private readonly string _serverName;
 
     /// <summary>
     /// The core NetMQ socket that listens for client connections and handles asynchronous request-reply patterns.
@@ -64,6 +67,7 @@ public class CommandServer : IDisposable
     /// <param name="messageHandler">The messageHandler that will handle the business logic for incoming commands.</param>
     /// <param name="localMeshEndpoint">The Local endpoint configuration, including the port to bind the RPC server to.</param>
     public CommandServer(
+        IOptions<MessageBusOptions> options,
         IServiceProvider serviceProvider,
         ICommandSerializer commandSerializer,
         ICommandMessageHandler messageHandler,
@@ -72,10 +76,13 @@ public class CommandServer : IDisposable
         _serviceProvider = serviceProvider;
         _commandSerializer = commandSerializer;
         _messageHandler = messageHandler;
+        _serverName = $"server: {options.Value.ApplicationName}";
 
         // Initialize and configure the Router socket with performance-oriented options.
         _router = new RouterSocket();
-        _router.Bind($"tcp://*:{localMeshEndpoint.RpcPort}");
+
+        // Register the callback for incoming messages on the poller thread.
+        _router.ReceiveReady += ReceivedFromDealer!;
 
         // Set socket options for high throughput and reliability.
         _router.Options.Linger = TimeSpan.Zero;             // Don't buffer on close
@@ -88,30 +95,26 @@ public class CommandServer : IDisposable
         _router.Options.ReceiveBuffer = 1024 * 1024;        // OS recv buffer size
         _router.Options.SendBuffer = 1024 * 1024;           // OS send buffer size
 
-        // Register the callback for incoming messages on the poller thread.
-        _router.ReceiveReady += ReceivedFromDealer!;
+        var port = PortFinder.FindAvailablePort(port => _router.Bind($"tcp://*:{port}"));
+
+        localMeshEndpoint.RpcPort = port;
+
+        Console.WriteLine(_serverName + $"tcp://*:{port}");
 
         // Initialize the response queue and its callback.
         _queue = new NetMQQueue<NetMQMessage>();
-        _queue.ReceiveReady += OnQueueReceiveReady;
+        _queue.ReceiveReady += SendResponseToDealer;
 
         // The poller will monitor both the router for new requests and the queue for new responses to send.
         _poller = new NetMQPoller { _router, _queue };
-
-        // Create and start the dedicated background thread for the poller.
-        _pollerThread = new Thread(_poller.Run)
-        {
-            IsBackground = true,
-            Name = "MeshMQ.CommandServer.Poller"
-        };
-        _pollerThread.Start();
+        _poller.RunAsync();
     }
 
     /// <summary>
     /// Event handler for the response queue. It dequeues and sends messages on the poller's thread,
     /// ensuring all socket write operations are thread-safe.
     /// </summary>
-    private void OnQueueReceiveReady(object? sender, NetMQQueueEventArgs<NetMQMessage> e)
+    private void SendResponseToDealer(object? sender, NetMQQueueEventArgs<NetMQMessage> e)
     {
         // Dequeue and send all available response messages.
         while (_queue.TryDequeue(out var msg, TimeSpan.Zero))
@@ -152,6 +155,7 @@ public class CommandServer : IDisposable
     {
         // Parse the incoming message frames without copying where possible.
         var identity = msg[0];
+      
         var topic = FastConvert.BytesToUlong(msg[2].Buffer);
         var correlationId = msg[3];
         var payloadFrame = msg[4];

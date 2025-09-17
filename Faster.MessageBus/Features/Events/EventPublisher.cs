@@ -47,7 +47,9 @@ internal sealed class EventPublisher : IEventPublisher, IDisposable
         _actionQueue.Enqueue(() =>
         {
             var pubSocket = new PublisherSocket();
-            pubSocket.Bind($"tcp://*:{_endpoint.PubPort}");
+            var port = PortFinder.FindAvailablePort(port => pubSocket.Bind($"tcp://*:{port}"));
+            _endpoint.PubPort = port;
+
             _pubSockets.Add(pubSocket);
             _poller.Add(pubSocket);
         });

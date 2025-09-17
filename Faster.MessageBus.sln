@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{02EA
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.Messagebus.Samples.Command", "Faster.Messagebus.Samples.Command\Faster.Messagebus.Samples.Command.csproj", "{185A2822-D15D-4584-AC43-FAFE64C17B66}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.Messagebus.Samples.Events", "Faster.Messagebus.Samples.Events\Faster.Messagebus.Samples.Events.csproj", "{67264176-B3DD-4777-BA14-5302C5EB5381}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -25,12 +27,17 @@ Global
 		{185A2822-D15D-4584-AC43-FAFE64C17B66}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{185A2822-D15D-4584-AC43-FAFE64C17B66}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{185A2822-D15D-4584-AC43-FAFE64C17B66}.Release|Any CPU.Build.0 = Release|Any CPU
+		{67264176-B3DD-4777-BA14-5302C5EB5381}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{67264176-B3DD-4777-BA14-5302C5EB5381}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{67264176-B3DD-4777-BA14-5302C5EB5381}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{67264176-B3DD-4777-BA14-5302C5EB5381}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{185A2822-D15D-4584-AC43-FAFE64C17B66} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{67264176-B3DD-4777-BA14-5302C5EB5381} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E68002CE-095D-44D3-8033-99EEFC48774D}

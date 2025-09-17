@@ -2,6 +2,7 @@
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using System.Buffers;
 
 namespace Faster.MessageBus.Features.Commands.Scope.Local;
@@ -13,9 +14,9 @@ namespace Faster.MessageBus.Features.Commands.Scope.Local;
 /// </summary>
 public class LocalCommandScope(
     ILocalSocketManager SocketManager,
-    ICommandReplyHandler commandReplyHandler,
-    ICommandScheduler commandScheduler,
-    ICommandSerializer serializer) : ILocalCommandScope
+    ICommandReplyHandler CommandReplyHandler,
+    [FromKeyedServices("localCommandScheduler")] ICommandScheduler CommandScheduler,
+    ICommandSerializer Serializer) : ILocalCommandScope
 {
     /// <summary>
     /// A statically cached exception instance to avoid allocating a new exception for every timeout event.
@@ -38,12 +39,12 @@ public class LocalCommandScope(
         var pendingReply = new PendingReply<byte[]>();
 
         // 1. Serialize the command payload into a buffer.
-        serializer.Serialize(command, writer);
+        Serializer.Serialize(command, writer);
         // 2. Register the pending reply so the system can correlate the response when it arrives.
-        commandReplyHandler.RegisterPending(pendingReply);
+        CommandReplyHandler.RegisterPending(pendingReply);
 
         // 3. Schedule the send operation to be executed on the thread-safe command scheduler.
-        commandScheduler.Invoke(new ScheduleCommand
+        CommandScheduler.Invoke(new ScheduleCommand
         {
             Socket = SocketManager.LocalSocket,
             CorrelationId = pendingReply.CorrelationId,
@@ -67,13 +68,13 @@ public class LocalCommandScope(
             ReadOnlyMemory<byte> respBytes = await pendingReply.AsValueTask().ConfigureAwait(false);
 
             // 7. Deserialize the response and return it.
-            var response = serializer.Deserialize<TResponse>(respBytes);
+            var response = Serializer.Deserialize<TResponse>(respBytes);
             return response;
         }
         finally
         {
             // 8. Crucially, clean up resources in a finally block to ensure it runs even on exception.
-            commandReplyHandler.TryUnregister(pendingReply.CorrelationId);
+            CommandReplyHandler.TryUnregister(pendingReply.CorrelationId);
             writer.Clear(); // Return buffer to the pool.
         }
     }
@@ -81,22 +82,22 @@ public class LocalCommandScope(
     /// <summary>
     /// Asynchronously sends a command that does not return a value but awaits a confirmation of completion.
     /// </summary>
-    /// <remarks>The method name "SendASync" is unconventional; standard C# naming would be "SendAsync".</remarks>
+    /// <remarks>The method name "SendAsync" is unconventional; standard C# naming would be "SendAsync".</remarks>
     /// <param name="topic">The unique identifier for the command, used for routing.</param>
     /// <param name="command">The command object containing the data to be sent.</param>
     /// <param name="timeout">The maximum time to wait for a completion response.</param>
     /// <param name="ct">An optional cancellation token to cancel the operation externally.</param>
     /// <returns>A task that completes when the command has been acknowledged by the receiver.</returns>
     /// <exception cref="OperationCanceledException">Thrown if the operation times out or is canceled via the <paramref name="ct"/> token.</exception>
-    public async Task SendASync(ICommand command, TimeSpan timeout, CancellationToken ct = default)
+    public async Task SendAsync(ICommand command, TimeSpan timeout, CancellationToken ct = default)
     {
         var writer = new ArrayBufferWriter<byte>();
         var pendingReply = new PendingReply<byte[]>();
 
-        serializer.Serialize(command, writer);
-        commandReplyHandler.RegisterPending(pendingReply);
+        Serializer.Serialize(command, writer);
+        CommandReplyHandler.RegisterPending(pendingReply);
 
-        commandScheduler.Invoke(new ScheduleCommand
+        CommandScheduler.Invoke(new ScheduleCommand
         {
             Socket = SocketManager.LocalSocket,
             CorrelationId = pendingReply.CorrelationId,
@@ -120,7 +121,7 @@ public class LocalCommandScope(
         finally
         {
             // Unregister and clean up resources.
-            commandReplyHandler.TryUnregister(pendingReply.CorrelationId);
+            CommandReplyHandler.TryUnregister(pendingReply.CorrelationId);
             writer.Clear();
         }
     }

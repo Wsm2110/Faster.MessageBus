@@ -13,6 +13,10 @@ public class MessageBusOptions
     /// </summary>
     public string ApplicationName { get; set; } = string.Empty;
 
+    public int RPCPort { get; set; }
+
+    public int PubishPort {  get; set; }
+
     public TimeSpan MesssageTimeout { get; set; } = TimeSpan.FromSeconds(1);
 }
 

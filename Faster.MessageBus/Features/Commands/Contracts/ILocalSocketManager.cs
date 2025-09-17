@@ -23,4 +23,6 @@ public interface ILocalSocketManager
     /// on this socket must be performed from the same thread, typically a dedicated network thread running a <c>NetMQPoller</c>.
     /// </remarks>
     DealerSocket LocalSocket { get; }
+
+    void Initialize();
 }

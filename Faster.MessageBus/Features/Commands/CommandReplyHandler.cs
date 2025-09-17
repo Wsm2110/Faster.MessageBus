@@ -18,48 +18,61 @@ public class CommandReplyHandler : ICommandReplyHandler
         new ConcurrentDictionary<ulong, PendingReply<byte[]>>();
 
     /// <summary>
-    /// Registers a pending request by correlation ID.
-    /// The TaskCompletionSource will be completed when the reply arrives.
+    /// Registers a pending request that is awaiting a reply.
+    /// The associated TaskCompletionSource will be completed when the reply arrives.
     /// </summary>
-    /// <param name="correlationID">Unique ID associated with this request.</param>
-    /// <param name="pendingReply">TaskCompletionSource to complete upon reply.</param>
+    /// <param name="pendingReply">An object containing the correlation ID and the TaskCompletionSource to complete upon reply.</param>
     public void RegisterPending(PendingReply<byte[]> pendingReply) =>
         _pending.TryAdd(pendingReply.CorrelationId, pendingReply);
 
     /// <summary>
-    /// Attempts to remove a pending request without completing it.
-    /// Useful for cancellation or cleanup.
+    /// Attempts to remove a pending request. This is typically used when a request
+    /// is cancelled or times out, to prevent a late reply from being processed.
     /// </summary>
-    /// <param name="corrId">Correlation ID of the pending request.</param>
-    /// <returns>True if the pending request was found and removed; otherwise false.</returns>
+    /// <param name="corrId">The correlation ID of the pending request to remove.</param>
+    /// <returns>True if the pending request was found and removed; otherwise, false.</returns>
     public bool TryUnregister(ulong corrId)
     {
-        if (_pending.TryRemove(corrId, out var _))
-        {
-            return false;
-        }
-
-        return true;
+        // Attempts to remove the pending request from the dictionary.
+        // This is the correct implementation, returning true on successful removal.
+        return _pending.TryRemove(corrId, out var _);
     }
 
     /// <summary>
-    /// Handles incoming replies from DealerSockets.
-    /// Matches messages based on correlation ID and completes the original Task.
-    /// Expected message format: [identity][empty][correlationId][payload]
+    /// Handles incoming reply messages from a NetMQ socket.
+    /// It extracts the correlation ID, finds the corresponding pending request,
+    /// and completes the task with the received payload.
     /// </summary>
-    /// <param name="sender">The socket raising the event.</param>
-    /// <param name="e">Event arguments containing the received message.</param>
+    /// <remarks>
+    /// The expected NetMQMessage format is a multi-part message where:
+    /// - Frame 1 contains the correlation ID (ulong).
+    /// - Frame 2 contains the response payload (byte[]).
+    /// Other frames (like the router identity in Frame 0) are ignored.
+    /// </remarks>
+    /// <param name="sender">The socket object that raised the event.</param>
+    /// <param name="e">The event arguments containing the socket and state.</param>
     public void ReceivedFromRouter(object sender, NetMQSocketEventArgs e)
     {
         var msg = new NetMQMessage();
 
+        // Continuously process all available multipart messages from the socket.
+        // Expecting a specific number of frames for a valid reply message.
         while (e.Socket.TryReceiveMultipartMessage(ref msg, 4))
         {
+            // The correlation ID is expected in the second frame (index 1).
             ulong corrId = MemoryMarshal.Read<ulong>(msg[1].Buffer);
 
+            // Attempt to find and remove the pending request associated with the correlation ID.
             if (_pending.TryRemove(corrId, out var pending))
             {
-                pending.SetResult(msg[2].Buffer);
+                // To avoid a race condition, check if the task has already been completed
+                // (e.g., by a timeout exception) before trying to set the result.
+                if (!pending.IsCompleted)
+                {
+                    // The payload is expected in the third frame (index 2).
+                    // Complete the task with the payload as the result.
+                    pending.SetResult(msg[2].Buffer);
+                }
             }
         }
     }

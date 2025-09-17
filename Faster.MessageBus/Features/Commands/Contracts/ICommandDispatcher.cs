@@ -20,11 +20,11 @@
     ///
     ///     public async Task DoWork()
     ///     {
-    ///         // Send a command within the same process
-    ///         var response = await _messageHandler.Local.Send(topic, command, timeout);
+    ///         // SendAsync a command within the same process
+    ///         var response = await _messageHandler.Local.SendAsync(topic, command, timeout);
     ///
     ///         // Broadcast a command to all nodes in the cluster
-    ///         await foreach(var clusterResponse in _messageHandler.Cluster.Send(topic, command, timeout))
+    ///         await foreach(var clusterResponse in _messageHandler.Cluster.SendAsync(topic, command, timeout))
     ///         {
     ///             // process results from cluster...
     ///         }
@@ -58,5 +58,6 @@
         /// </summary>
         /// <value>The <see cref="INetworkCommandScope"/> implementation.</value>
         INetworkCommandScope Network { get; }
+
     }
 }

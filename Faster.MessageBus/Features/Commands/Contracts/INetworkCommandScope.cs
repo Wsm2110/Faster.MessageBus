@@ -39,7 +39,7 @@ namespace Faster.MessageBus.Features.Commands.Contracts
         /// Broadcasts a command across the network and awaits completion acknowledgments from remote endpoints.
         /// This is suitable for notification-style or "fire-and-await-completion" commands where no data is returned.
         /// </summary>
-        /// <remarks>The method name "SendASync" is unconventional; standard C# naming would be "SendAsync".</remarks>
+        /// <remarks>The method name "SendAsync" is unconventional; standard C# naming would be "SendAsync".</remarks>
         /// <param name="topic">The unique identifier for the command, used for routing.</param>
         /// <param name="command">The command object containing the data to be sent.</param>
         /// <param name="timeout">The maximum time to wait for completion acknowledgments from all remote endpoints.</param>

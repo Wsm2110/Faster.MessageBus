@@ -18,7 +18,7 @@ public interface IMeshDiscoveryService
     /// Starts the discovery service. This begins broadcasting the local node's MeshInfo
     /// and listening for beacons from other nodes on the network.
     /// </summary>
-    void Start();
+    void Start(MeshInfo info);
 
     /// <summary>
     /// Stops the discovery service. This ceases broadcasting and listening for beacons.

@@ -1,12 +1,7 @@
 ﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Events.Contracts;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Faster.MessageBus.Features.Events;
 

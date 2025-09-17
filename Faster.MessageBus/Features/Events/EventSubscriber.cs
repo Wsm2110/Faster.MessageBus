@@ -1,4 +1,5 @@
-﻿using Faster.MessageBus.Features.Events.Contracts;
+﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Shared;
 using NetMQ;
 using NetMQ.Sockets;
@@ -32,7 +33,7 @@ internal class EventSubscriber : IEventSubscriber, IDisposable
     /// Subscribes to mesh join/leave events and sets up the NetMQ poller thread.
     /// </summary>
     /// <param name="notificationHandlerProvider">Handler _messageHandler for incoming messages.</param>
-    public EventSubscriber(IEventHandlerProvider notificationHandlerProvider)
+    public EventSubscriber(IEventHandlerProvider notificationHandlerProvider, IEventAggregator eventAggregator)
     {
         _notificationHandlerProvider = notificationHandlerProvider;
 
@@ -56,7 +57,7 @@ internal class EventSubscriber : IEventSubscriber, IDisposable
         };
 
         // When a new node joins, connect to its PUB Socket
-        EventAggregator.Subscribe<MeshJoined>(joined =>
+        eventAggregator.Subscribe<MeshJoined>(joined =>
         {
             _actionQueue.Enqueue(() =>
             {
@@ -97,7 +98,7 @@ internal class EventSubscriber : IEventSubscriber, IDisposable
         });
 
         // When a node leaves, disconnect and dispose its Socket
-        EventAggregator.Subscribe<MeshRemoved>(left =>
+        eventAggregator.Subscribe<MeshRemoved>(left =>
         {
             _actionQueue.Enqueue(() =>
             {

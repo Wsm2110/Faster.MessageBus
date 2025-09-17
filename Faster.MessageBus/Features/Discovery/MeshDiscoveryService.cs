@@ -1,4 +1,5 @@
-﻿using Faster.MessageBus.Features.Discovery.Contracts;
+﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Discovery.Contracts;
 using Faster.MessageBus.Shared;
 using MessagePack;
 using Microsoft.Extensions.Options;
@@ -17,6 +18,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     /// The storage provider used to track the state of discovered nodes in the mesh.
     /// </summary>
     private readonly IMeshRepository _storage;
+    private readonly IEventAggregator _eventAggregator;
 
     /// <summary>
     /// Configuration options for the message bus.
@@ -52,9 +54,13 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     /// <param name="options">The configuration options for the message bus.</param>
     /// <param name="endpoint">The local endpoint information to advertise over the network.</param>
     /// <param name="port">The UDP port to use for beacon broadcasting and listening.</param>
-    public MeshDiscoveryService(IMeshRepository provider, IOptions<MessageBusOptions> options, LocalEndpoint endpoint, int port = 9100)
+    public MeshDiscoveryService(IMeshRepository provider,
+        IEventAggregator eventAggregator,
+        IOptions<MessageBusOptions> options, 
+        LocalEndpoint endpoint, int port = 9100)
     {
         _storage = provider;
+        _eventAggregator = eventAggregator;
         _options = options;
         _endpoint = endpoint;
 
@@ -63,20 +69,16 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
         // Subscribe to all incoming beacons (the empty string is a wildcard).
         _beacon.Subscribe("");
         _beacon.ReceiveReady += OnSignalReceived!; // Hook the receive event.
-        _poller.Add(_beacon);
-
-        // Start the service upon initialization.
-        Start();
+        _poller.Add(_beacon);   
     }
 
     /// <summary>
     /// Starts the discovery service by publishing the local node's information and running the background poller to listen for other nodes.
     /// </summary>
-    public void Start()
-    {
-        _endpoint.RegisterSelf();
+    public void Start(MeshInfo meshInfo)
+    {       
         // Publish this node's identity for others to discover.
-        _beacon.Publish(MessagePackSerializer.Serialize(_endpoint.Meshinfo));
+        _beacon.Publish(MessagePackSerializer.Serialize(meshInfo));
         _poller.RunAsync();
     }
 
@@ -115,7 +117,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
             // If the node is new, add it and publish a MeshJoined event. Otherwise, update its state.
             if (_storage.Add(updated))
             {
-                EventAggregator.Publish(new MeshJoined(updated));
+                _eventAggregator.Publish(new MeshJoined(updated));
             }
             else
             {
@@ -136,10 +138,10 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
         foreach (var meshInfo in _storage.All())
         {
             // If the node hasn't been seen in the last 10 seconds, consider it inactive.
-            if ((now - meshInfo.LastSeen).TotalSeconds > 10)
+            if ((now - meshInfo.LastSeen).TotalSeconds > 4)
             {
                 _storage.Remove(meshInfo);
-                EventAggregator.Publish(new MeshRemoved(meshInfo));
+                _eventAggregator.Publish(new MeshRemoved(meshInfo));
             }
         }
     }

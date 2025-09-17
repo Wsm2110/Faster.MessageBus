@@ -1,5 +1,9 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Commands.Shared;
+using Microsoft.Extensions.Options;
+using NetMQ;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
 namespace Faster.MessageBus.Shared;
@@ -9,58 +13,66 @@ namespace Faster.MessageBus.Shared;
 /// </summary>
 public class LocalEndpoint
 {
-    /// <summary>
-    /// Gets the port number bound to the RPC Socket.
-    /// </summary>
-    public ushort RpcPort { get; private set; }
-
-    /// <summary>
-    /// Gets the port number bound to the PUB Socket.
-    /// </summary>
-    public ushort PubPort { get; private set; }
+    public string MeshId;
+    public ushort PubPort { get; internal set; }
+    public ushort RpcPort { get; internal set; }
+    public string Address { get; internal set; } = GetIPv4();
+    public string ApplicationName { get; internal set; }
 
     /// <summary>
     /// Initializes and binds the Local RPC and PUB sockets to available ports.
     /// </summary>
     public LocalEndpoint(IOptions<MessageBusOptions> options)
     {
-        RpcPort = PortFinder.FindAvailablePort();
-        PubPort = PortFinder.FindAvailablePort();
-
         // Example values
-        string appId = options.Value.ApplicationName;  // Could be configurable
+        string appId = options.Value.ApplicationName;
         string workstation = Environment.MachineName;
-
-        var id = $"{workstation}-{appId}";
-        Meshinfo = CreateMeshInfo(id, workstation, appId);
-    }
-
-    public MeshInfo Meshinfo { get; set; }
-
-    public void RegisterSelf()
-    {
-        EventAggregator.Publish(new MeshJoined(Meshinfo));
-    }
-
-    public static string GetLocalIPv4()
-    {
-        foreach (var ip in Dns.GetHostEntry(Dns.GetHostName()).AddressList)
-        {
-            if (ip.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip))
-            {
-                return ip.ToString(); // Return the first valid IPv4 address
-            }
-        }
-
-        return "127.0.0.1"; // Fallback
+        ApplicationName = options.Value.ApplicationName;
+        MeshId = $"{workstation}-{appId}";
     }
 
     /// <summary>
-    /// Creates a <see cref="MeshInfo"/> object representing this endpoint.
+    /// Finds a reliable IPv4 address for use on a local area network (LAN),
+    /// specifically designed for offline or "off-the-grid" environments.
+    /// It prioritizes active Ethernet and Wi-Fi adapters.
     /// </summary>
-    /// <param name="meshId">Unique identifier for the mesh node.</param>
-    /// <returns>A new <see cref="MeshInfo"/> instance.</returns>
-    private MeshInfo CreateMeshInfo(string meshId, string workstationName, string appID) => new(meshId, workstationName, GetLocalIPv4(), appID, RpcPort, PubPort);
+    /// <returns>A string containing the LAN IP address, or a fallback to 127.0.0.1.</returns>
+    public static string GetIPv4()
+    {
+        try
+        {
+            // Get all network interfaces on the machine
+            foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                // We're interested in interfaces that are currently operational
+                // and are of a type that is likely to be the main LAN connection.
+                if (networkInterface.OperationalStatus == OperationalStatus.Up &&
+                    (networkInterface.NetworkInterfaceType == NetworkInterfaceType.Ethernet ||
+                     networkInterface.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
+                {
+                    // Get the IP properties for this interface
+                    var ipProperties = networkInterface.GetIPProperties();
+
+                    // Find the first valid IPv4 address on this interface
+                    foreach (var ipAddressInfo in ipProperties.UnicastAddresses)
+                    {
+                        if (ipAddressInfo.Address.AddressFamily == AddressFamily.InterNetwork)
+                        {
+                            // We found a suitable address, return it.
+                            return ipAddressInfo.Address.ToString();
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Handle potential exceptions if network info is unavailable
+        }
+
+        // If we couldn't find a suitable LAN IP, fallback to loopback.
+        return "127.0.0.1";
+    }
 }
 
 /// <summary>
@@ -80,16 +92,18 @@ public static class PortFinder
     /// <param name="startPort">Initialize of the port range (inclusive).</param>
     /// <param name="endPort">End of the port range (inclusive).</param>
     /// <returns>An available port number.</returns>
-    public static ushort FindAvailablePort(ushort startPort = 5000, ushort endPort = 5200)
+    public static ushort FindAvailablePort(Action<int> bindAction, ushort startPort = 10000, ushort endPort = 52000)
     {
         lock (_lock)
         {
             for (ushort port = startPort; port <= endPort; port++)
             {
                 if (_usedPorts.Contains(port))
+                {
                     continue;
+                }
 
-                if (IsPortAvailable(port))
+                if (IsPortAvailable(bindAction, port))
                 {
                     _usedPorts.Add(port);
                     return port;
@@ -105,22 +119,27 @@ public static class PortFinder
     /// </summary>
     /// <param name="port">Port number to check.</param>
     /// <returns><c>true</c> if the port is not in use by any other process; otherwise, <c>false</c>.</returns>
-    private static bool IsPortAvailable(int port)
+    private static bool IsPortAvailable(Action<int> bindAction, int port)
     {
         try
         {
             // Try to open a listener, then close immediately
-            var listener = new TcpListener(IPAddress.Any, port);
-            listener.Start();
-            listener.Stop();
+            bindAction(port);
             return true;
         }
         catch (SocketException)
         {
+            Console.WriteLine(port + "failed");
+            return false;
+        }
+        catch (NetMQException)
+        {
+            Console.WriteLine(port + "failed");
             return false;
         }
         catch
         {
+            Console.WriteLine(port + "failed");
             // In case of any other error, assume not available
             return false;
         }

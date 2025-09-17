@@ -1,7 +1,5 @@
 ﻿using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Extensions;
-using Faster.MessageBus.Features.Commands.Shared;
-using Faster.MessageBus.Shared;
 using NetMQ;
 
 namespace Faster.MessageBus.Features.Commands;
@@ -10,7 +8,7 @@ namespace Faster.MessageBus.Features.Commands;
 /// Implements the <see cref="ICommandScheduler"/> interface to provide a single-threaded execution context for processing commands and interacting with NetMQ sockets.
 /// This class uses the "actor" model, where work is enqueued from any thread and executed sequentially on a dedicated worker thread, ensuring thread safety without explicit locks.
 /// </summary>
-public sealed class CommandScheduler : ICommandScheduler, IDisposable
+public sealed class ClusterCommandScheduler : ICommandScheduler, IDisposable
 {
     /// <summary>
     /// The dedicated thread where the NetMQPoller runs, providing a serialized execution context.
@@ -26,41 +24,29 @@ public sealed class CommandScheduler : ICommandScheduler, IDisposable
     /// A thread-safe queue for generic <see cref="Action"/> delegates. Actions are enqueued from any thread
     /// and executed sequentially on the poller's thread.
     /// </summary>
-    private readonly NetMQQueue<Action> _queue = new NetMQQueue<Action>();
+    private readonly NetMQQueue<Action<NetMQPoller>> _actionQueue = new NetMQQueue<Action<NetMQPoller>>();
 
     /// <summary>
     /// A thread-safe queue specifically for <see cref="ScheduleCommand"/> objects that need to be serialized and sent over a socket.
     /// This separation allows for specialized, high-performance handling of socket-bound commands.
     /// </summary>
-    private readonly NetMQQueue<ScheduleCommand> _socketActions = new NetMQQueue<ScheduleCommand>();
+    private readonly NetMQQueue<ScheduleCommand> _commandQueue = new NetMQQueue<ScheduleCommand>();
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="CommandScheduler"/> class.
+    /// Initializes a new instance of the <see cref="ClusterCommandScheduler"/> class.
     /// It sets up the queues, poller, subscribes to socket lifecycle events, and starts the dedicated worker thread.
     /// </summary>
     /// <param name="name">The name to assign to the worker thread for easier debugging.</param>
-    public CommandScheduler(string name = "CommandProcessorThread")
+    public ClusterCommandScheduler(string name = "ClusterCommandSchedulerThread")
     {
         // Subscribe to the ReceiveReady events. These are triggered by the poller
         // on its own thread when an item is available in a queue.
-        _queue.ReceiveReady += OnQueueReceiveReady;
-        _socketActions.ReceiveReady += OnSocketQueueReceiveReady;
+        _actionQueue.ReceiveReady += OnQueueReceiveReady;
+        _commandQueue.ReceiveReady += OnSocketQueueReceiveReady;
 
         // Add the queues to the poller. The poller will now monitor them for new items.
-        _poller.Add(_queue);
-        _poller.Add(_socketActions);
-
-        // Dynamically add and remove sockets from the poller as they are created or removed elsewhere
-        // in the application, using a decoupled event aggregator.
-        EventAggregator.Subscribe<DealerSocketCreated>(i =>
-        {
-            _poller.Add(i.Socket);
-        });
-
-        EventAggregator.Subscribe<DealerSocketRemoved>(i =>
-        {
-            _poller.Remove(i.Socket);
-        });
+        _poller.Add(_actionQueue);
+        _poller.Add(_commandQueue);
 
         // Create and configure the dedicated thread to run the poller's event loop.
         _thread = new Thread(() =>
@@ -74,7 +60,7 @@ public sealed class CommandScheduler : ICommandScheduler, IDisposable
     }
 
     /// <summary>
-    /// Event handler that processes socket-bound commands from the <see cref="_socketActions"/> queue.
+    /// Event handler that processes socket-bound commands from the <see cref="_commandQueue"/> queue.
     /// This method is executed on the poller's dedicated thread.
     /// </summary>
     /// <remarks>
@@ -87,7 +73,7 @@ public sealed class CommandScheduler : ICommandScheduler, IDisposable
     private void OnSocketQueueReceiveReady(object? sender, NetMQQueueEventArgs<ScheduleCommand> e)
     {
         // Dequeue and process all currently available commands.
-        while (_socketActions.TryDequeue(out var command, TimeSpan.Zero))
+        while (_commandQueue.TryDequeue(out var command, TimeSpan.Zero))
         {
             Span<byte> topicBuffer = stackalloc byte[sizeof(ulong)];
             Span<byte> corrBuffer = stackalloc byte[sizeof(ulong)];
@@ -105,15 +91,15 @@ public sealed class CommandScheduler : ICommandScheduler, IDisposable
     }
 
     /// <summary>
-    /// Event handler that processes generic actions from the <see cref="_queue"/>.
+    /// Event handler that processes generic actions from the <see cref="_actionQueue"/>.
     /// This method is executed on the poller's dedicated thread.
     /// </summary>
-    private void OnQueueReceiveReady(object? sender, NetMQQueueEventArgs<Action> e)
+    private void OnQueueReceiveReady(object? sender, NetMQQueueEventArgs<Action<NetMQPoller>> e)
     {
         // Dequeue and invoke all currently available actions.
-        while (_queue.TryDequeue(out var action, TimeSpan.Zero))
+        while (_actionQueue.TryDequeue(out var action, TimeSpan.Zero))
         {
-            action();
+            action(_poller);
         }
     }
 
@@ -122,13 +108,13 @@ public sealed class CommandScheduler : ICommandScheduler, IDisposable
     /// can safely interact with any resource managed by this processor, such as sockets.
     /// </summary>
     /// <param name="action">The action to execute on the poller thread.</param>
-    public void Invoke(Action action) => _queue.Enqueue(action);
+    public void Invoke(Action<NetMQPoller> action) => _actionQueue.Enqueue(action);
 
     /// <summary>
     /// Schedules a command to be serialized and sent over a socket via the poller thread.
     /// </summary>
     /// <param name="command">The command containing the socket, topic, correlation ID, and payload to send.</param>
-    public void Invoke(ScheduleCommand command) => _socketActions.Enqueue(command);
+    public void Invoke(ScheduleCommand command) => _commandQueue.Enqueue(command);
 
     /// <summary>
     /// Stops the poller, joins the worker thread, and cleans up all managed resources.
@@ -137,17 +123,13 @@ public sealed class CommandScheduler : ICommandScheduler, IDisposable
     {
         // Enqueue the Stop command to the poller's own queue. This is the correct way
         // to gracefully shut down the poller from an external thread.
-        Invoke(() =>
-        {
-            _poller.Stop();
-        });
-
+        _poller.Stop();
         // Wait for the poller's thread to finish its work and exit.
         _thread.Join();
 
         // Now that the thread is stopped, it is safe to dispose of the poller and queues.
         _poller.Dispose();
-        _queue.Dispose();
-        _socketActions.Dispose();
+        _actionQueue.Dispose();
+        _commandQueue.Dispose();
     }
 }

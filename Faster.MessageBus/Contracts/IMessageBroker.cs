@@ -15,9 +15,9 @@ using Microsoft.Extensions.DependencyInjection;
 /// <code>
 /// public class MyService
 /// {
-///     private readonly IMessageBusEntryPoint _messageBus;
+///     private readonly IMessageBroker _messageBus;
 ///
-///     public MyService(IMessageBusEntryPoint messageBus)
+///     public MyService(IMessageBroker messageBus)
 ///     {
 ///         _messageBus = messageBus;
 ///     }
@@ -27,14 +27,14 @@ using Microsoft.Extensions.DependencyInjection;
 ///         // Publish an event via the event dispatcher
 ///         _messageBus.EventDispatcher.Publish(new MyEvent());
 ///
-///         // Send a command via the command dispatcher
-///         var response = await _messageBus.CommandDispatcher.Local.Send(topic, command, timeout);
+///         // SendAsync a command via the command dispatcher
+///         var response = await _messageBus.CommandDispatcher.Local.SendAsync(topic, command, timeout);
 ///     }
 /// }
 /// </code>
 /// </example>
 /// </remarks>
-public interface IMessageBusEntryPoint
+public interface IMessageBroker
 {
     /// <summary>
     /// Gets the dispatcher for sending commands using the request-reply pattern across various scopes.

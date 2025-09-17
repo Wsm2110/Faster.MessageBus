@@ -28,11 +28,11 @@ public interface ILocalCommandScope
     /// Asynchronously sends a command to its handler within the current process and awaits completion, without returning any data.
     /// This is suitable for notification-style or "fire-and-await-completion" commands.
     /// </summary>
-    /// <remarks>The method name "SendASync" is unconventional; standard C# naming would be "SendAsync".</remarks>
+    /// <remarks>The method name "SendAsync" is unconventional; standard C# naming would be "SendAsync".</remarks>
     /// <param name="topic">The unique identifier for the command, used for routing.</param>
     /// <param name="command">The command object containing the data to be sent.</param>
     /// <param name="timeout">The maximum time to wait for a completion acknowledgment.</param>
     /// <param name="ct">An optional cancellation token to cancel the operation externally.</param>
     /// <returns>A <see cref="Task"/> that completes when the command has been handled.</returns>
-    Task SendASync(ICommand command, TimeSpan timeout, CancellationToken ct = default);
+    Task SendAsync(ICommand command, TimeSpan timeout, CancellationToken ct = default);
 }

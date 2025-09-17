@@ -1,6 +1,7 @@
 ﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -11,7 +12,7 @@ namespace Faster.MessageBus.Features.Commands.Scope.Cluster;
 /// </summary>
 public class ClusterCommandScope(
     IClusterSocketManager socketManager,
-    ICommandScheduler scheduler,
+   [FromKeyedServices("clusterCommandScheduler")] ICommandScheduler scheduler,
     ICommandSerializer serializer,
     ICommandReplyHandler commandReplyHandler) : IClusterCommandScope
 {
@@ -102,7 +103,7 @@ public class ClusterCommandScope(
                 // Crucially, unregister and return the pooled object inside the loop
                 // to make it available for reuse as quickly as possible.
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _elasticPool.Return(ref pending);
+                _elasticPool.Return(pending);
             }
         }
 
@@ -113,7 +114,7 @@ public class ClusterCommandScope(
     /// <summary>
     /// Broadcasts a command to all listening endpoints on the local machine and awaits their completion, without returning any data.
     /// </summary>
-    /// <remarks>The method name "SendASync" is unconventional; standard C# naming would be "SendAsync".</remarks>
+    /// <remarks>The method name "SendAsync" is unconventional; standard C# naming would be "SendAsync".</remarks>
     /// <param name="topic">The unique identifier for the command, used for routing.</param>
     /// <param name="command">The command object containing the data to be sent.</param>
     /// <param name="timeout">The maximum time to wait for completion acknowledgments from all endpoints.</param>
@@ -167,7 +168,7 @@ public class ClusterCommandScope(
             finally
             {
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _elasticPool.Return(ref pending);
+                _elasticPool.Return(pending);
             }
         }
 

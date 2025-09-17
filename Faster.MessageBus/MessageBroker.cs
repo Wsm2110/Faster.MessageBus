@@ -4,6 +4,7 @@ using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Events;
 using Faster.MessageBus.Features.Events.Contracts;
+using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
@@ -19,9 +20,9 @@ using Microsoft.Extensions.DependencyInjection;
 /// <code>
 /// public class MyService
 /// {
-///     private readonly IMessageBusEntryPoint _messageBus;
+///     private readonly IMessageBroker _messageBus;
 ///
-///     public MyService(IMessageBusEntryPoint messageBus)
+///     public MyService(IMessageBroker messageBus)
 ///     {
 ///         _messageBus = messageBus;
 ///     }
@@ -31,14 +32,14 @@ using Microsoft.Extensions.DependencyInjection;
 ///         // Publish an event
 ///         _messageBus.EventDispatcher.Publish(new MyEvent());
 ///
-///         // Send a command and get a reply
-///         var response = await _messageBus.CommandDispatcher.Local.Send(topic, command, timeout);
+///         // SendAsync a command and get a reply
+///         var response = await _messageBus.CommandDispatcher.Local.SendAsync(topic, command, timeout);
 ///     }
 /// }
 /// </code>
 /// </example>
 /// </remarks>
-public class MessageBusEntryPoint : IServiceInstaller, IMessageBusEntryPoint
+public class MessageBroker : IServiceInstaller, IMessageBroker
 {
     /// <summary>
     /// Gets the dispatcher for publishing events using the publish-subscribe pattern.
@@ -55,17 +56,17 @@ public class MessageBusEntryPoint : IServiceInstaller, IMessageBusEntryPoint
     /// <summary>
     /// 
     /// </summary>
-    public MessageBusEntryPoint()
+    public MessageBroker()
     {
         // Used for reflection...
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="MessageBusEntryPoint"/> class.
+    /// Initializes a new instance of the <see cref="MessageBroker"/> class.
     /// </summary>
     /// <param name="eventDispatcher">The concrete event dispatcher implementation.</param>
     /// <param name="commandDispatcher">The concrete command dispatcher implementation.</param>
-    public MessageBusEntryPoint(IEventDispatcher eventDispatcher,
+    public MessageBroker(IEventDispatcher eventDispatcher,
         ICommandDispatcher commandDispatcher, IServiceProvider serviceProvider)
     {
         EventDispatcher = eventDispatcher;
@@ -78,11 +79,12 @@ public class MessageBusEntryPoint : IServiceInstaller, IMessageBusEntryPoint
     /// <inheritdoc/>
     public void Install(IServiceCollection serviceCollection)
     {
-        // Registers this entry point as a singleton, making IMessageBusEntryPoint
+        // Registers this entry point as a singleton, making IMessageBroker
         // available for injection throughout the application.
-        serviceCollection.AddSingleton<IMessageBusEntryPoint, MessageBusEntryPoint>();
+        serviceCollection.AddSingleton<IMessageBroker, MessageBroker>();
         serviceCollection.AddSingleton<ICommandDispatcher, CommandDispatcher>();
         serviceCollection.AddSingleton<IEventDispatcher, EventDispatcher>();
+        serviceCollection.AddSingleton<IEventAggregator, EventAggregator>();
 
         serviceCollection.AddSingleton<IStartup, Startup>();
 

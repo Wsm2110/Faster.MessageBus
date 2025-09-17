@@ -58,10 +58,15 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The service collection.</param>
     /// <param name="configureOptions">Delegate to configure MeshMQ _options.</param>
     /// <returns>The updated service collection.</returns>
-    public static IServiceCollection AddMessageBus(
-        this IServiceCollection services)
-    {      
-        var installers = Assembly.GetAssembly(typeof(MessageBusEntryPoint))!
+    public static IServiceCollection AddMessageBus(this IServiceCollection services,
+        Action<MessageBusOptions> options = default)
+    {
+        if (options != null)
+        {
+            services.Configure(options);
+        }
+
+        var installers = Assembly.GetAssembly(typeof(MessageBroker))!
             .GetTypes()
             .Where(t => typeof(IServiceInstaller).IsAssignableFrom(t) && t is { IsInterface: false, IsAbstract: false })
             .Select(Activator.CreateInstance)
@@ -73,7 +78,7 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddCommandHandlers();
-        services.AddEventHandlers();       
+        services.AddEventHandlers();
         return services;
     }
 }

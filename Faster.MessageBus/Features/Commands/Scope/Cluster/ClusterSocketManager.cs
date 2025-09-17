@@ -1,6 +1,8 @@
-﻿using Faster.MessageBus.Features.Commands.Contracts;
+﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NetMQ.Sockets;
 using System.Text;
@@ -59,11 +61,15 @@ internal class ClusterSocketManager : IClusterSocketManager, IDisposable
     /// <param name="scheduler">The scheduler used to serialize access to sockets and internal collections.</param>
     /// <param name="handler">The handler for processing incoming message replies.</param>
     /// <param name="clusterOptions">The configuration for filtering which nodes to connect to.</param>
-    public ClusterSocketManager(ICommandScheduler scheduler, ICommandReplyHandler handler, IOptions<ClusterOptions> clusterOptions)
+    public ClusterSocketManager(
+        [FromKeyedServices("clusterCommandScheduler")] ICommandScheduler scheduler,
+        ICommandReplyHandler handler,
+        IEventAggregator eventAggregator,
+        IOptions<ClusterOptions> clusterOptions)
     {
         // Subscribe to discovery events to dynamically manage connections as nodes join and leave the cluster.
-        EventAggregator.Subscribe<MeshJoined>(data => AddSocket(data.Info));
-        EventAggregator.Subscribe<MeshRemoved>(data => RemoveSocket(data.Info));
+        eventAggregator.Subscribe<MeshJoined>(data => AddSocket(data.Info));
+        eventAggregator.Subscribe<MeshRemoved>(data => RemoveSocket(data.Info));
 
         _scheduler = scheduler;
         _handler = handler;
@@ -82,11 +88,11 @@ internal class ClusterSocketManager : IClusterSocketManager, IDisposable
     public void AddSocket(MeshInfo info)
     {
         // Use the scheduler to ensure all NetMQ operations and collection modifications happen on the poller thread.
-        _scheduler.Invoke(() =>
+        _scheduler.Invoke(poller =>
         {
             // Note: This filtering logic may need review. As written, it rejects a node if *any* configured
             // application doesn't match, or if *any* configured node IP doesn't match.
-            if (_clusterOptions.Value.Applications.Any() && _clusterOptions.Value.Applications.Exists(app => app.Name != info.Name))
+            if (_clusterOptions.Value.Applications.Any() && _clusterOptions.Value.Applications.Exists(app => app.Name != info.ApplicationName))
             {
                 return;
             }
@@ -110,7 +116,7 @@ internal class ClusterSocketManager : IClusterSocketManager, IDisposable
 
             // Add the newly created socket to our collection and notify the system.
             _sockets[info] = socket;
-            EventAggregator.Publish(new DealerSocketCreated(socket));
+            poller.Add(socket);
         });
     }
 
@@ -125,7 +131,7 @@ internal class ClusterSocketManager : IClusterSocketManager, IDisposable
         bool removed = false;
 
         // Ensure all operations on the dictionary and socket happen on the scheduler's thread.
-        _scheduler.Invoke(() =>
+        _scheduler.Invoke(poller =>
         {
             if (_sockets.TryGetValue(meshInfo, out var socket))
             {
@@ -135,7 +141,7 @@ internal class ClusterSocketManager : IClusterSocketManager, IDisposable
                     // Unsubscribe the event handler, dispose the socket, and notify the system.
                     socket.ReceiveReady -= _handler.ReceivedFromRouter!;
                     socket.Dispose();
-                    EventAggregator.Publish(new DealerSocketRemoved(socket));
+                    poller.Remove(socket);
                 }
             }
         });
@@ -150,7 +156,7 @@ internal class ClusterSocketManager : IClusterSocketManager, IDisposable
     public void Dispose()
     {
         // Schedule the disposal of all sockets on the scheduler's thread.
-        _scheduler.Invoke(() =>
+        _scheduler.Invoke(poller =>
         {
             foreach (var s in _sockets.Values)
             {

@@ -235,7 +235,7 @@ public sealed class ElasticPool : IDisposable
     /// This is an extremely fast, zero-allocation operation that pushes the item into the current thread's local queue within the <see cref="ConcurrentBag{T}"/>.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Return(ref PendingReply<byte[]> item)
+    public void Return(PendingReply<byte[]> item)
     {
         item.Reset();
         _items.Add(item);

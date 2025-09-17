@@ -1,4 +1,5 @@
-﻿using System;
+﻿using NetMQ;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.Design;
 using System.Linq;
@@ -32,5 +33,5 @@ public interface ICommandScheduler : IDisposable
     /// Schedules a generic action to be executed by the scheduler.
     /// </summary>
     /// <param name="action">The <see cref="Action"/> delegate to invoke.</param>
-    void Invoke(Action action);
+    void Invoke(Action<NetMQPoller> action);
 }

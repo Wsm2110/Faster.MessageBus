@@ -23,11 +23,12 @@ namespace Faster.MessageBus.Features.Heartbeat
             _discoveryService = discoveryService;
 
             // Timer triggers every 60 seconds to check for expired nodes
-            _timer = new NetMQTimer(TimeSpan.FromSeconds(5));
+            _timer = new NetMQTimer(TimeSpan.FromMilliseconds(100));
             _timer.Elapsed += _discoveryService.RemoveInactiveApplications;
 
             // Attach the timer to the poller
             _poller = new NetMQPoller { _timer };
+            Start();
         }
 
         /// <summary>

@@ -1,125 +1,189 @@
-﻿using Faster.MessageBus.Features.Commands.Contracts;
-using Faster.MessageBus.Features.Commands.Scope.Network;
-using Faster.MessageBus.Features.Commands.Shared;
+﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using NetMQ.Sockets;
-using System.Text;
 
 namespace Faster.MessageBus.Features.Commands.Scope.Machine;
 
-internal class MachineSocketManager : IMachineSocketManager
+/// <summary>
+/// Manages a collection of <see cref="DealerSocket"/> instances for communication 
+/// with other nodes on the same machine. 
+/// 
+/// All socket operations are executed on a dedicated scheduler thread 
+/// to guarantee thread safety without locks.
+/// </summary>
+internal class MachineSocketManager : IMachineSocketManager, IDisposable
 {
+    /// <summary>
+    /// Internal dictionary of sockets keyed by MeshInfo.Id.
+    /// </summary>
+    private readonly List<(string Id, DealerSocket Socket)> _socketInfoList = new();
 
     /// <summary>
-    /// A dictionary of active client sockets, keyed by the mesh information of the node they are connected to.
-    /// Access to this dictionary should be synchronized via the _scheduler.
+    /// Scheduler that provides single-threaded execution context for all socket operations.
     /// </summary>
-    private readonly Dictionary<MeshInfo, DealerSocket> _sockets = new();
     private readonly ICommandScheduler _scheduler;
+
+    /// <summary>
+    /// Event aggregator for subscribing to mesh membership changes.
+    /// </summary>
+    private readonly IEventAggregator _eventAggregator;
+
+    /// <summary>
+    /// Handles replies received from RouterSockets.
+    /// </summary>
     private readonly ICommandReplyHandler _handler;
 
     /// <summary>
-    /// Returns all managed sockets.
+    /// Delegates stored for unsubscribing from mesh join/remove events during disposal.
     /// </summary>
-    public IEnumerable<DealerSocket> All => _sockets.Values;
+    private readonly Action<MeshJoined> _onMeshJoined;
+    private readonly Action<MeshRemoved> _onMeshRemoved;
+
+    private bool _disposed;
 
     /// <summary>
-    /// 
+    /// Gets the number of sockets currently managed.
     /// </summary>
-    public int Count => _sockets.Count;
+    public int Count => _socketInfoList.Count;
 
-    public MachineSocketManager(ICommandScheduler scheduler, ICommandReplyHandler commandReplyHandler)
+    /// <summary>
+    /// Initializes a new instance of <see cref="MachineSocketManager"/>.
+    /// Subscribes to mesh events and sets up the scheduler context.
+    /// </summary>
+    public MachineSocketManager(
+        [FromKeyedServices("machineCommandScheduler")] ICommandScheduler scheduler,
+        IEventAggregator eventAggregator,
+        ICommandReplyHandler commandReplyHandler)
     {
-        EventAggregator.Subscribe<MeshJoined>(data => AddSocket(data.Info));
-        EventAggregator.Subscribe<MeshRemoved>(data => RemoveSocket(data.Info));
-
         _scheduler = scheduler;
+        _eventAggregator = eventAggregator;
         _handler = commandReplyHandler;
+
+        // Store delegates for later unsubscription.
+        _onMeshJoined = data => AddSocket(data.Info);
+        _onMeshRemoved = data => RemoveSocket(data.Info);
+
+        // Subscribe to cluster mesh lifecycle events.
+        eventAggregator.Subscribe(_onMeshJoined);
+        eventAggregator.Subscribe(_onMeshRemoved);
     }
 
     /// <summary>
-    /// Creates, configures, and connects a new DealerSocket based on the provided mesh information.
-    /// The entire operation is performed on the _scheduler's thread for thread safety.
+    /// Returns up to <paramref name="count"/> sockets.
+    /// If fewer sockets are available, returns all of them.
+    /// If more are available, excess are skipped.
     /// </summary>
-    /// <param name="info">The connection and identity information for the new socket.</param>
+    public IEnumerable<(string Id, DealerSocket Socket)> Get(int count)
+    {
+        int take = Math.Min(count, _socketInfoList.Count);   // cap at requested count
+
+        for (int i = 0; i < take; i++)
+        {
+            yield return _socketInfoList[i];
+        }
+    }
+
+    /// <summary>
+    /// Adds a new DealerSocket for the given mesh node. 
+    /// The socket is only created if:
+    /// 1. No socket already exists for the node, AND
+    /// 2. The node is on the local machine.
+    /// </summary>
+    /// <param name="info">The mesh node information used to configure the socket.</param>
     public void AddSocket(MeshInfo info)
     {
-        // Use the _scheduler to ensure all NetMQ operations happen on the poller thread.
-        _scheduler.Invoke(() =>
+        _scheduler.Invoke(poller =>
         {
-            // Don't add if a socket for this info already exists.ine
-            // Only add sockets when the mesh is on the same mach
-            if (_sockets.ContainsKey(info) || info.Address != LocalEndpoint.GetLocalIPv4())
+            if (info.WorkstationName != Environment.MachineName)
             {
                 return;
             }
 
-            var socket = new DealerSocket();
-            // The Identity is crucial for the Router socket on the other end to identify the client.
-            socket.Options.Identity = Encoding.UTF8.GetBytes(info.Id);
-            socket.ReceiveReady += _handler.ReceivedFromRouter!;
-            socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
-            // Add the newly created socket to our collection.
-            _sockets[info] = socket;
-            EventAggregator.Publish(new DealerSocketCreated(socket));
-        });
-    }
-
-    /// <summary>
-    /// Removes and disposes of a socket.
-    /// NOTE: This method is not fully implemented.
-    /// </summary>
-    /// <param name="key">The key identifying the socket to remove.</param>
-    /// <returns>True if a socket was removed; otherwise, false.</returns>
-    public bool RemoveSocket(MeshInfo meshInfo)
-    {
-        bool removed = false;
-
-        // Ensure all operations on the dictionary happen on the _scheduler's thread.
-        _scheduler.Invoke(() =>
-        {
-            if (_sockets.TryGetValue(meshInfo, out var socket))
+            var socket = new DealerSocket
             {
-                // Remove the socket from the dictionary
-                removed = _sockets.Remove(meshInfo);
+                // Assign a unique compact identity.
+                Options = { Identity = DealerIdentityGenerator.Create() }
+            };
 
-                if (removed)
-                {
-                    // Unsubscribe the event handler and dispose the socket safely on the poller thread
-                    socket.ReceiveReady -= _handler.ReceivedFromRouter!;
-                    socket.Dispose();
+            // Register reply handler for incoming messages.
+            socket.ReceiveReady += _handler.ReceivedFromRouter!;
 
-                    // Publish an event so others can react to this socket being removed
-                    // Note: notify commanddispatcher to stop polling
-                    EventAggregator.Publish(new DealerSocketRemoved(socket));
-                }
-            }
+            // Connect to the remote node's RPC endpoint.
+            socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
+
+            // Track socket and add it to the poller.
+            _socketInfoList.Add((info.Id, socket));
+            poller.Add(socket);
         });
-
-        return removed;
     }
 
     /// <summary>
-    /// Disposes all managed sockets and the _scheduler itself.
-    /// This operation is scheduled on the _scheduler's thread for a graceful shutdown.
+    /// Removes and disposes the socket for the specified mesh node. 
+    /// Schedules cleanup work on the scheduler thread.
+    /// </summary>
+    /// <param name="meshInfo">Mesh node identifying which socket to remove.</param>
+    public void RemoveSocket(MeshInfo meshInfo)
+    {
+        _scheduler.Invoke(poller =>
+        {
+            for (int i = 0; i < _socketInfoList.Count; i++)
+            {
+                var socketInfo = _socketInfoList[i];
+
+                if (socketInfo.Id == meshInfo.Id) 
+                {
+                    // Finally, remove from dictionary.
+                    _socketInfoList.RemoveAt(i);
+
+                    // Remove socket from poller first.
+                    poller.Remove(socketInfo.Socket);
+
+                    // Unsubscribe + dispose socket.
+                    CleanupSocket(socketInfo.Socket);
+                    break;
+                }
+            }             
+        });
+    }
+
+    /// <summary>
+    /// Disposes this manager and all associated sockets.
+    /// Ensures event unsubscription and thread-safe cleanup.
     /// </summary>
     public void Dispose()
     {
-        // Schedule the disposal of all sockets on the _scheduler's thread.
-        _scheduler.Invoke(() =>
+        if (_disposed) return;
+        _disposed = true;
+
+        // Stop receiving mesh updates.
+        _eventAggregator.Unsubscribe(_onMeshJoined);
+        _eventAggregator.Unsubscribe(_onMeshRemoved);
+
+        // Clean up sockets on scheduler thread.
+        _scheduler.Invoke(poller =>
         {
-            foreach (var s in _sockets.Values)
+            foreach (var socketinfo in _socketInfoList)
             {
-                s.Dispose();
+                poller.Remove(socketinfo.Socket);
+                CleanupSocket(socketinfo.Socket);
             }
-            _sockets.Clear();
+            _socketInfoList.Clear();
         });
 
-        // After the above action is processed, dispose of the _scheduler itself.
+        // Dispose the scheduler after all scheduled work is done.
         _scheduler.Dispose();
+        GC.SuppressFinalize(this);
     }
 
-
-
+    /// <summary>
+    /// Safely unsubscribes handlers and disposes a DealerSocket.
+    /// Must always be called on the scheduler thread.
+    /// </summary>
+    private void CleanupSocket(DealerSocket socket)
+    {
+        socket.ReceiveReady -= _handler.ReceivedFromRouter!;
+        socket.Dispose();
+    }
 }
-
