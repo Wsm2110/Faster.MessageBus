@@ -1,7 +1,5 @@
 ﻿using Faster.MessageBus.Shared;
-using NetMQ;
 using NetMQ.Sockets;
-using System.Net.Sockets;
 
 namespace Faster.MessageBus.Features.Commands.Scope.Machine
 {
@@ -37,7 +35,7 @@ namespace Faster.MessageBus.Features.Commands.Scope.Machine
         /// Removes and disposes the <see cref="DealerSocket"/> associated with the specified mesh node.
         /// Must be executed on the scheduler thread to maintain thread safety.
         /// </summary>
-        /// <param name="meshInfo">The mesh node whose socket should be removed.</param>
+        /// <param name="meshInfo">The mesh node whose Socket should be removed.</param>
         void RemoveSocket(MeshInfo meshInfo);
     }
 }

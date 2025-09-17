@@ -9,8 +9,8 @@ namespace Faster.MessageBus.Features.Commands.Scope.Cluster;
 /// <summary>
 /// Represents a single, addressable node (e.g., a server or container) within a cluster.
 /// </summary>
-/// <param name="Hostname">The network-resolvable hostname or IP address of the node.</param>
-public record Node(string Hostname, string IpAddress);
+/// <param name="machineName">The network-resolvable hostname or IP address of the node.</param>
+public record Node(string machineName, string IpAddress);
 
 /// <summary>
 /// Represents a specific application or service type within the cluster that can be targeted for commands.
@@ -26,7 +26,7 @@ public record Application(string Name);
 /// <see cref="Applications"/> lists, you can direct a command to a subset of the cluster instead of broadcasting it to all members.
 /// If both lists are null or empty, the default behavior is typically to broadcast to the entire cluster.
 /// </remarks>
-internal class ClusterOptions
+public class Cluster
 {
     /// <summary>
     /// Gets or sets a list of specific nodes to target.

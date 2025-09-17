@@ -5,7 +5,7 @@ namespace Faster.MessageBus.Features.Events;
 
 /// <summary>
 /// Concrete implementation of <see cref="IEventHandlerProvider"/> using dependency injection.
-/// Its single responsibility is to build and store _handler actions.
+/// Its single responsibility is to build and store _replyHandler actions.
 /// (Formerly NoticationHandlerProvider)
 /// </summary>
 internal class EventHandlerProvider : IEventHandlerProvider
@@ -24,8 +24,7 @@ internal class EventHandlerProvider : IEventHandlerProvider
     {
         _provider = provider;
         _serializer = serializer;
-        _scanner = scanner;     
-        RegisterAll(scanner);
+        _scanner = scanner;         
     }
 
     /// <inheritdoc />
@@ -36,7 +35,7 @@ internal class EventHandlerProvider : IEventHandlerProvider
             // Resolve the appropriate consumer from the service _provider
             if (_provider.GetService(typeof(IEventHandler<TEvent>)) is not IEventHandler<TEvent> handler)
             {
-                throw new InvalidOperationException($"No _handler registered in the DI container for {typeof(IEventHandler<TEvent>)}.");
+                throw new InvalidOperationException($"No _replyHandler registered in the DI container for {typeof(IEventHandler<TEvent>)}.");
             }
 
             // Deserialize the message payload
@@ -55,7 +54,7 @@ internal class EventHandlerProvider : IEventHandlerProvider
             return handler;
         }
 
-        throw new KeyNotFoundException($"No consumer _handler registered for topic '{topic}'.");
+        throw new KeyNotFoundException($"No eventHandler registered for topic '{topic}'.");
     }
 
     /// <summary>

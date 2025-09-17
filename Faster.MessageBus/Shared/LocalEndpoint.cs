@@ -22,7 +22,7 @@ public class LocalEndpoint
     /// <summary>
     /// Initializes and binds the Local RPC and PUB sockets to available ports.
     /// </summary>
-    public LocalEndpoint(IOptions<MessageBusOptions> options)
+    public LocalEndpoint(IOptions<MessageBrokerOptions> options)
     {
         // Example values
         string appId = options.Value.ApplicationName;
@@ -92,11 +92,17 @@ public static class PortFinder
     /// <param name="startPort">Initialize of the port range (inclusive).</param>
     /// <param name="endPort">End of the port range (inclusive).</param>
     /// <returns>An available port number.</returns>
-    public static ushort FindAvailablePort(Action<int> bindAction, ushort startPort = 10000, ushort endPort = 52000)
+    public static ushort FindAvailablePort(ushort startPort, Action<int> bindAction)
     {
         lock (_lock)
         {
-            for (ushort port = startPort; port <= endPort; port++)
+            if (startPort == 0)
+            {
+                startPort = 10000;
+            }
+
+            var endPort = startPort + 2000;
+            for (var port = startPort; port <= endPort; port++)
             {
                 if (_usedPorts.Contains(port))
                 {
@@ -128,18 +134,15 @@ public static class PortFinder
             return true;
         }
         catch (SocketException)
-        {
-            Console.WriteLine(port + "failed");
+        {           
             return false;
         }
         catch (NetMQException)
-        {
-            Console.WriteLine(port + "failed");
+        {          
             return false;
         }
         catch
-        {
-            Console.WriteLine(port + "failed");
+        {            
             // In case of any other error, assume not available
             return false;
         }

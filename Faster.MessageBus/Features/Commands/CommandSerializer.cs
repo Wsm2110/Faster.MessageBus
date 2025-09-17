@@ -88,13 +88,13 @@ public interface ICommandSerializer
 public class CommandSerializer : ICommandSerializer
 {
     /// <summary>
-    /// Holds the configured MessagePack options, including LZ4 compression and the resolver.
+    /// Holds the configured MessagePack _options, including LZ4 compression and the resolver.
     /// </summary>
     private readonly MessagePackSerializerOptions _options;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CommandSerializer"/> class.
-    /// It configures the default MessagePack options to use LZ4 block array compression and the standard resolver.
+    /// It configures the default MessagePack _options to use LZ4 block array compression and the standard resolver.
     /// </summary>
     public CommandSerializer()
     {

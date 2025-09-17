@@ -21,9 +21,9 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     private readonly IEventAggregator _eventAggregator;
 
     /// <summary>
-    /// Configuration options for the message bus.
+    /// Configuration _options for the message bus.
     /// </summary>
-    private readonly IOptions<MessageBusOptions> _options;
+    private readonly IOptions<MessageBrokerOptions> _options;
 
     /// <summary>
     /// Provides the details of the local node's endpoint to be advertised.
@@ -51,12 +51,12 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     /// Initializes a new instance of the <see cref="MeshDiscoveryService"/> class, configures the beacon, and starts the discovery process.
     /// </summary>
     /// <param name="provider">The mesh provider used to track discovered nodes.</param>
-    /// <param name="options">The configuration options for the message bus.</param>
+    /// <param name="options">The configuration _options for the message bus.</param>
     /// <param name="endpoint">The local endpoint information to advertise over the network.</param>
     /// <param name="port">The UDP port to use for beacon broadcasting and listening.</param>
     public MeshDiscoveryService(IMeshRepository provider,
         IEventAggregator eventAggregator,
-        IOptions<MessageBusOptions> options, 
+        IOptions<MessageBrokerOptions> options, 
         LocalEndpoint endpoint, int port = 9100)
     {
         _storage = provider;

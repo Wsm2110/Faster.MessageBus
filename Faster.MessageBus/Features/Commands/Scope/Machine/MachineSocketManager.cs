@@ -10,18 +10,18 @@ namespace Faster.MessageBus.Features.Commands.Scope.Machine;
 /// Manages a collection of <see cref="DealerSocket"/> instances for communication 
 /// with other nodes on the same machine. 
 /// 
-/// All socket operations are executed on a dedicated scheduler thread 
+/// All Socket operations are executed on a dedicated scheduler thread 
 /// to guarantee thread safety without locks.
 /// </summary>
 internal class MachineSocketManager : IMachineSocketManager, IDisposable
 {
     /// <summary>
-    /// Internal dictionary of sockets keyed by MeshInfo.Id.
+    /// Internal list of sockets keyed by MeshInfo.Id.
     /// </summary>
     private readonly List<(string Id, DealerSocket Socket)> _socketInfoList = new();
 
     /// <summary>
-    /// Scheduler that provides single-threaded execution context for all socket operations.
+    /// Scheduler that provides single-threaded execution context for all Socket operations.
     /// </summary>
     private readonly ICommandScheduler _scheduler;
 
@@ -87,11 +87,11 @@ internal class MachineSocketManager : IMachineSocketManager, IDisposable
 
     /// <summary>
     /// Adds a new DealerSocket for the given mesh node. 
-    /// The socket is only created if:
-    /// 1. No socket already exists for the node, AND
+    /// The Socket is only created if:
+    /// 1. No Socket already exists for the node, AND
     /// 2. The node is on the local machine.
     /// </summary>
-    /// <param name="info">The mesh node information used to configure the socket.</param>
+    /// <param name="info">The mesh node information used to configure the Socket.</param>
     public void AddSocket(MeshInfo info)
     {
         _scheduler.Invoke(poller =>
@@ -113,17 +113,17 @@ internal class MachineSocketManager : IMachineSocketManager, IDisposable
             // Connect to the remote node's RPC endpoint.
             socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
 
-            // Track socket and add it to the poller.
+            // Track Socket and add it to the poller.
             _socketInfoList.Add((info.Id, socket));
             poller.Add(socket);
         });
     }
 
     /// <summary>
-    /// Removes and disposes the socket for the specified mesh node. 
+    /// Removes and disposes the Socket for the specified mesh node. 
     /// Schedules cleanup work on the scheduler thread.
     /// </summary>
-    /// <param name="meshInfo">Mesh node identifying which socket to remove.</param>
+    /// <param name="meshInfo">Mesh node identifying which Socket to remove.</param>
     public void RemoveSocket(MeshInfo meshInfo)
     {
         _scheduler.Invoke(poller =>
@@ -137,10 +137,10 @@ internal class MachineSocketManager : IMachineSocketManager, IDisposable
                     // Finally, remove from dictionary.
                     _socketInfoList.RemoveAt(i);
 
-                    // Remove socket from poller first.
+                    // Remove Socket from poller first.
                     poller.Remove(socketInfo.Socket);
 
-                    // Unsubscribe + dispose socket.
+                    // Unsubscribe + dispose Socket.
                     CleanupSocket(socketInfo.Socket);
                     break;
                 }

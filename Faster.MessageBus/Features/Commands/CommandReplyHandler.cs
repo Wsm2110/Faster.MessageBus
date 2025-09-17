@@ -39,7 +39,7 @@ public class CommandReplyHandler : ICommandReplyHandler
     }
 
     /// <summary>
-    /// Handles incoming reply messages from a NetMQ socket.
+    /// Handles incoming reply messages from a NetMQ Socket.
     /// It extracts the correlation ID, finds the corresponding pending request,
     /// and completes the task with the received payload.
     /// </summary>
@@ -49,13 +49,13 @@ public class CommandReplyHandler : ICommandReplyHandler
     /// - Frame 2 contains the response payload (byte[]).
     /// Other frames (like the router identity in Frame 0) are ignored.
     /// </remarks>
-    /// <param name="sender">The socket object that raised the event.</param>
-    /// <param name="e">The event arguments containing the socket and state.</param>
+    /// <param name="sender">The Socket object that raised the event.</param>
+    /// <param name="e">The event arguments containing the Socket and state.</param>
     public void ReceivedFromRouter(object sender, NetMQSocketEventArgs e)
     {
         var msg = new NetMQMessage();
 
-        // Continuously process all available multipart messages from the socket.
+        // Continuously process all available multipart messages from the Socket.
         // Expecting a specific number of frames for a valid reply message.
         while (e.Socket.TryReceiveMultipartMessage(ref msg, 4))
         {

@@ -5,14 +5,13 @@ using NetMQ;
 using NetMQ.Sockets;
 using System.Buffers;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Faster.MessageBus.Features.Commands;
 
 /// <summary>
-/// A thread-safe, high-performance command server using a NetMQ Router socket. It listens for incoming requests,
+/// A thread-safe, high-performance command server using a NetMQ Router Socket. It listens for incoming requests,
 /// dispatches them to registered command handlers via an <see cref="ICommandServerDispatcher"/>, and sends back responses.
-/// The server uses a dedicated poller thread to manage all socket I/O, ensuring thread safety and high throughput.
+/// The server uses a dedicated poller thread to manage all Socket I/O, ensuring thread safety and high throughput.
 /// </summary>
 public class CommandServer : IDisposable
 {
@@ -26,7 +25,7 @@ public class CommandServer : IDisposable
     private readonly string _serverName;
 
     /// <summary>
-    /// The core NetMQ socket that listens for client connections and handles asynchronous request-reply patterns.
+    /// The core NetMQ Socket that listens for client connections and handles asynchronous request-reply patterns.
     /// It automatically manages client identities.
     /// </summary>
     private readonly RouterSocket _router;
@@ -67,7 +66,7 @@ public class CommandServer : IDisposable
     /// <param name="messageHandler">The messageHandler that will handle the business logic for incoming commands.</param>
     /// <param name="localMeshEndpoint">The Local endpoint configuration, including the port to bind the RPC server to.</param>
     public CommandServer(
-        IOptions<MessageBusOptions> options,
+        IOptions<MessageBrokerOptions> options,
         IServiceProvider serviceProvider,
         ICommandSerializer commandSerializer,
         ICommandMessageHandler messageHandler,
@@ -78,13 +77,13 @@ public class CommandServer : IDisposable
         _messageHandler = messageHandler;
         _serverName = $"server: {options.Value.ApplicationName}";
 
-        // Initialize and configure the Router socket with performance-oriented options.
+        // Initialize and configure the Router Socket with performance-oriented _options.
         _router = new RouterSocket();
 
         // Register the callback for incoming messages on the poller thread.
         _router.ReceiveReady += ReceivedFromDealer!;
 
-        // Set socket options for high throughput and reliability.
+        // Set Socket _options for high throughput and reliability.
         _router.Options.Linger = TimeSpan.Zero;             // Don't buffer on close
         _router.Options.SendHighWatermark = 1_000_000;      // Huge outbound queue
         _router.Options.ReceiveHighWatermark = 1_000_000;   // Huge inbound queue
@@ -95,8 +94,9 @@ public class CommandServer : IDisposable
         _router.Options.ReceiveBuffer = 1024 * 1024;        // OS recv buffer size
         _router.Options.SendBuffer = 1024 * 1024;           // OS send buffer size
 
-        var port = PortFinder.FindAvailablePort(port => _router.Bind($"tcp://*:{port}"));
 
+        // find random port in range of 10000 -12000
+        var port = PortFinder.FindAvailablePort(options.Value.RPCPort, port => _router.Bind($"tcp://*:{port}"));
         localMeshEndpoint.RpcPort = port;
 
         Console.WriteLine(_serverName + $"tcp://*:{port}");
@@ -112,7 +112,7 @@ public class CommandServer : IDisposable
 
     /// <summary>
     /// Event handler for the response queue. It dequeues and sends messages on the poller's thread,
-    /// ensuring all socket write operations are thread-safe.
+    /// ensuring all Socket write operations are thread-safe.
     /// </summary>
     private void SendResponseToDealer(object? sender, NetMQQueueEventArgs<NetMQMessage> e)
     {
@@ -124,7 +124,7 @@ public class CommandServer : IDisposable
     }
 
     /// <summary>
-    /// Event handler for the Router socket. It receives incoming messages and offloads them for processing.
+    /// Event handler for the Router Socket. It receives incoming messages and offloads them for processing.
     /// This method is executed on the poller's dedicated thread.
     /// </summary>
     /// <remarks>
@@ -155,7 +155,7 @@ public class CommandServer : IDisposable
     {
         // Parse the incoming message frames without copying where possible.
         var identity = msg[0];
-      
+
         var topic = FastConvert.BytesToUlong(msg[2].Buffer);
         var correlationId = msg[3];
         var payloadFrame = msg[4];
@@ -177,28 +177,7 @@ public class CommandServer : IDisposable
     }
 
     /// <summary>
-    /// A high-performance utility to get the underlying array from a ReadOnlyMemory segment without allocation, if possible.
-    /// </summary>
-    /// <param name="memory">The memory segment to inspect.</param>
-    /// <param name="offset">When this method returns, contains the offset within the returned array where the segment begins.</param>
-    /// <param name="length">When this method returns, contains the length of the segment in the array.</param>
-    /// <returns>The underlying byte array if available; otherwise, null.</returns>
-    public byte[]? TryGetArray(ReadOnlyMemory<byte> memory, int offset, int length)
-    {
-        if (MemoryMarshal.TryGetArray(memory, out ArraySegment<byte> segment))
-        {
-            offset = segment.Offset;
-            length = segment.Count;
-            return segment.Array!;
-        }
-
-        offset = 0;
-        length = 0;
-        return null;
-    }
-
-    /// <summary>
-    /// Stops the poller, closes the socket, and disposes all managed resources cleanly.
+    /// Stops the poller, closes the Socket, and disposes all managed resources cleanly.
     /// </summary>
     public void Dispose()
     {

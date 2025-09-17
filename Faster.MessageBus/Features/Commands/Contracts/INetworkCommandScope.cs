@@ -33,7 +33,7 @@ namespace Faster.MessageBus.Features.Commands.Contracts
         /// }
         /// </code>
         /// </remarks>
-        IAsyncEnumerable<TResponse> Send<TResponse>(ulong topic, ICommand<TResponse> command, TimeSpan timeout, CancellationToken ct = default);
+        IAsyncEnumerable<TResponse> SendAsync<TResponse>(ICommand<TResponse> command, TimeSpan timeout, CancellationToken ct = default);
 
         /// <summary>
         /// Broadcasts a command across the network and awaits completion acknowledgments from remote endpoints.
@@ -45,6 +45,6 @@ namespace Faster.MessageBus.Features.Commands.Contracts
         /// <param name="timeout">The maximum time to wait for completion acknowledgments from all remote endpoints.</param>
         /// <param name="ct">An optional cancellation token to cancel the operation externally.</param>
         /// <returns>A <see cref="Task"/> that completes when all remote endpoints have acknowledged the command or the operation times out.</returns>
-        Task SendASync(ulong topic, ICommand command, TimeSpan timeout, CancellationToken ct = default);
+        Task SendAsync(ICommand command, TimeSpan timeout, CancellationToken ct = default);
     }
 }

@@ -1,54 +1,31 @@
-﻿using Faster.MessageBus.Contracts;
+﻿using CommunityToolkit.HighPerformance.Buffers;
+using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Events.Contracts;
-using Microsoft.Extensions.DependencyInjection;
-using System.Reflection;
+using Faster.MessageBus.Features.Events.Shared;
+using Faster.MessageBus.Shared;
 
 namespace Faster.MessageBus.Features.Events;
 
-public class EventDispatcher : IEventDispatcher
+/// <summary>
+/// A dispatcher responsible for serializing and publishing events to the message bus.
+/// </summary>
+/// <param name="scheduler">The scheduler responsible for queuing the event for transmission on a dedicated thread.</param>
+/// <param name="serializer">The serializer used to convert event objects into a binary format.</param>
+/// <param name="socketManager">The manager for the underlying network sockets used for publishing.</param>
+public class EventDispatcher(
+    IEventScheduler scheduler,
+    IEventSerializer serializer,
+    IEventSocketManager socketManager) : IEventDispatcher
 {
-    private readonly Dictionary<Type, List<Func<IEvent, Task>>> _handlers = new();
-
-    public void Subscribe<TEvent>(Func<TEvent, Task> handler) where TEvent : class, IEvent
+    /// <summary>
+    /// Serializes and publishes an event to the message bus. The operation is offloaded to a scheduler for non-blocking execution.
+    /// </summary>
+    /// <param name="event">The event to publish.</param>
+    public void Publish(IEvent @event)
     {
-        var eventType = typeof(TEvent);
-        if (!_handlers.ContainsKey(eventType)) _handlers[eventType] = new List<Func<IEvent, Task>>();
-        _handlers[eventType].Add(e => handler(e as TEvent));
-        Console.WriteLine($"Event handler '{handler.Method.Name}' subscribed to '{eventType.Name}'");
+        using var writer = new ArrayPoolBufferWriter<byte>();
+        serializer.Serialize(@event, writer);
+        var topic = WyHashHelper.Hash(@event.GetType().Name);
+        scheduler.Invoke(new ScheduleEvent(socketManager.PublisherSocket, topic, writer.WrittenMemory));  
     }
-
-    public async Task PublishAsync(IEvent @event)
-    {
-        Console.WriteLine($"\n[EventDispatcher] Publishing event: {@event.GetType().Name}");
-        if (_handlers.TryGetValue(@event.GetType(), out var handlers))
-        {
-            foreach (var handler in handlers) await handler(@event);
-        }
-    }
-
-    public IServiceCollection RegisterEventHandlers(IServiceCollection services, Assembly assembly)
-    {
-        var consumerTypes = assembly
-            .GetTypes()
-            .Where(t =>
-                t is { IsAbstract: false, IsInterface: false } &&
-                t.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEventHandler<>)))
-            .ToList();
-
-        foreach (var implType in consumerTypes)
-        {
-            var interfaces = implType.GetInterfaces()
-                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEventHandler<>));
-
-            foreach (var @interface in interfaces)
-            {
-                // resolve consumers by fullname
-                services.AddTransient(@interface, implType);
-            }
-        }
-
-        return services;
-    }
-
 }
-

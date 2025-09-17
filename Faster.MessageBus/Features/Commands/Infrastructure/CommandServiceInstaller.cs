@@ -15,7 +15,7 @@ internal class CommandServiceInstaller : IServiceInstaller
     public void Install(IServiceCollection serviceCollection)
     {
         // Register and configure MeshMQ _options
-        serviceCollection.Configure<MessageBusOptions>(options => { });
+        serviceCollection.Configure<MessageBrokerOptions>(options => { });
 
         serviceCollection.AddSingleton<LocalEndpoint>();
         serviceCollection.AddSingleton<CommandServer>();

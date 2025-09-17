@@ -28,14 +28,14 @@ public sealed class MachineCommandScheduler : ICommandScheduler, IDisposable
     private readonly NetMQQueue<Action<NetMQPoller>> _actionQueue = new NetMQQueue<Action<NetMQPoller>>();
 
     /// <summary>
-    /// A thread-safe queue specifically for <see cref="ScheduleCommand"/> objects that need to be serialized and sent over a socket.
-    /// This separation allows for specialized, high-performance handling of socket-bound commands.
+    /// A thread-safe queue specifically for <see cref="ScheduleCommand"/> objects that need to be serialized and sent over a Socket.
+    /// This separation allows for specialized, high-performance handling of Socket-bound commands.
     /// </summary>
     private readonly NetMQQueue<ScheduleCommand> _commandQueue = new NetMQQueue<ScheduleCommand>();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ClusterCommandScheduler"/> class.
-    /// It sets up the queues, poller, subscribes to socket lifecycle events, and starts the dedicated worker thread.
+    /// It sets up the queues, poller, subscribes to Socket lifecycle events, and starts the dedicated worker thread.
     /// </summary>
     /// <param name="name">The name to assign to the worker thread for easier debugging.</param>
     public MachineCommandScheduler(string name = "MachineCommandSchedulerThread")
@@ -64,12 +64,12 @@ public sealed class MachineCommandScheduler : ICommandScheduler, IDisposable
     }
 
     /// <summary>
-    /// Event handler that processes socket-bound commands from the <see cref="_commandQueue"/> queue.
+    /// Event handler that processes Socket-bound commands from the <see cref="_commandQueue"/> queue.
     /// This method is executed on the poller's dedicated thread.
     /// </summary>
     /// <remarks>
     /// The method constructs and sends a multi-part NetMQ message with the following structure:
-    /// Frame 1: Empty (for ROUTER socket routing).
+    /// Frame 1: Empty (for ROUTER Socket routing).
     /// Frame 2: Topic (ulong).
     /// Frame 3: CorrelationId (ulong).
     /// Frame 4: Payload (byte span).
@@ -115,9 +115,9 @@ public sealed class MachineCommandScheduler : ICommandScheduler, IDisposable
     public void Invoke(Action<NetMQPoller> action) => _actionQueue.Enqueue(action);
 
     /// <summary>
-    /// Schedules a command to be serialized and sent over a socket via the poller thread.
+    /// Schedules a command to be serialized and sent over a Socket via the poller thread.
     /// </summary>
-    /// <param name="command">The command containing the socket, topic, correlation ID, and payload to send.</param>
+    /// <param name="command">The command containing the Socket, topic, correlation ID, and payload to send.</param>
     public void Invoke(ScheduleCommand command) => _commandQueue.Enqueue(command);
 
     /// <summary>

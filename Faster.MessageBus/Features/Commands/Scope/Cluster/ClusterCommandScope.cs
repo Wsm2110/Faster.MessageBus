@@ -12,7 +12,7 @@ namespace Faster.MessageBus.Features.Commands.Scope.Cluster;
 /// </summary>
 public class ClusterCommandScope(
     IClusterSocketManager socketManager,
-   [FromKeyedServices("clusterCommandScheduler")] ICommandScheduler scheduler,
+    [FromKeyedServices("clusterCommandScheduler")] ICommandScheduler scheduler,
     ICommandSerializer serializer,
     ICommandReplyHandler commandReplyHandler) : IClusterCommandScope
 {
@@ -39,7 +39,7 @@ public class ClusterCommandScope(
     /// <remarks>
     /// This method is highly optimized and follows a specific workflow:
     /// 1. The command payload is serialized only once into a pooled buffer.
-    /// 2. For each target socket, a <see cref="PendingReply{TResult}"/> is rented from an object pool.
+    /// 2. For each target Socket, a <see cref="PendingReply{TResult}"/> is rented from an object pool.
     /// 3. All send operations are scheduled on the thread-safe <see cref="ICommandScheduler"/>.
     /// 4. A single timeout/cancellation mechanism governs all outstanding requests.
     /// 5. Responses are awaited individually. As each response arrives, it is yielded to the caller,
@@ -58,7 +58,7 @@ public class ClusterCommandScope(
         var writer = new ArrayBufferWriter<byte>();
         serializer.Serialize(command, writer);
 
-        // Scatter Phase: Dispatch a request to each socket.
+        // Scatter Phase: Dispatch a request to each Socket.
         int count = 0;
         foreach (var socket in socketManager.All)
         {
@@ -137,7 +137,7 @@ public class ClusterCommandScope(
             commandReplyHandler.RegisterPending(pending);
             requests[count++] = pending;
 
-            scheduler.Invoke(new ScheduleCommand // Assuming 'ScheduleCommand' is a typo for 'ProcessCommand'
+            scheduler.Invoke(new ScheduleCommand // Assuming 'ScheduleEvent' is a typo for 'ProcessCommand'
             {
                 Socket = socket,
                 CorrelationId = pending.CorrelationId,

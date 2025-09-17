@@ -4,7 +4,6 @@ using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using System.Buffers;
 using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands.Scope.Machine;
@@ -29,7 +28,7 @@ public class MachineCommandScope(
     /// A high-performance object pool for reusing <see cref="PendingReply{TResult}"/> objects. This significantly
     /// reduces memory allocations and GC pressure during high-throughput scatter-gather operations.
     /// </summary>
-    private readonly ElasticPool _elasticPool = new ElasticPool(1024);
+    private readonly ElasticPool _PendingReplyPool = new ElasticPool(1024);
 
     /// <summary>
     /// A reusable buffer writer that uses the ArrayPool to minimize memory allocations when serializing commands.
@@ -48,7 +47,7 @@ public class MachineCommandScope(
     /// <remarks>
     /// This method is highly optimized and follows a specific workflow:
     /// 1. The command payload is serialized only once into a pooled buffer.
-    /// 2. For each target socket, a <see cref="PendingReply{TResult}"/> is rented from an object pool.
+    /// 2. For each target Socket, a <see cref="PendingReply{TResult}"/> is rented from an object pool.
     /// 3. All send operations are scheduled on the thread-safe <see cref="ICommandScheduler"/>.
     /// 4. A single timeout/cancellation mechanism governs all outstanding requests.
     /// 5. Responses are awaited individually. As each response arrives, it is yielded to the caller,
@@ -67,12 +66,13 @@ public class MachineCommandScope(
 
         var requests = new PendingReply<byte[]>[count];
         serializer.Serialize(command, _writer);
+        var topic = WyHashHelper.Hash(command.GetType().Name);
 
-        // Scatter Phase: Dispatch a request to each socket.
+        // Scatter Phase: Dispatch a request to each Socket.
         int requestIndex = 0;
         foreach (var socketinfo in socketManager.Get(count))
         {
-            var pending = _elasticPool.Rent();
+            var pending = _PendingReplyPool.Rent();
             commandReplyHandler.RegisterPending(pending);
             requests[requestIndex++] = pending;
 
@@ -81,7 +81,7 @@ public class MachineCommandScope(
                 Socket = socketinfo.Socket,
                 CorrelationId = pending.CorrelationId,
                 Payload = _writer.WrittenMemory,
-                Topic = WyHashHelper.Hash(command.GetType().Name),
+                Topic = WyHashHelper.Hash(command.GetType().Name)
             });
         }
 
@@ -109,15 +109,14 @@ public class MachineCommandScope(
             try
             {
                 ReadOnlyMemory<byte> respBytes = await pending.AsValueTask().ConfigureAwait(false);
-                var response = serializer.Deserialize<TResponse>(respBytes);
-                yield return response;
+                yield return serializer.Deserialize<TResponse>(respBytes);
             }
             finally
             {
                 // Crucially, unregister and return the pooled object inside the loop
                 // to make it available for reuse as quickly as possible.
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _elasticPool.Return(pending);
+                _PendingReplyPool.Return(pending);
             }
         }
 
@@ -142,14 +141,15 @@ public class MachineCommandScope(
 
         var requests = new PendingReply<byte[]>[numSockets];
         // Using a local writer here as this method is less performance-critical than the streaming version.
-        var writer = new ArrayBufferWriter<byte>();
-        serializer.Serialize(command, writer);
+        serializer.Serialize(command, _writer);
 
-        // Scatter Phase: Dispatch the command to each connected socket.
+        var topic = WyHashHelper.Hash(command.GetType().Name);
+
+        // Scatter Phase: Dispatch the command to each connected Socket.
         int count = 0;
         foreach (var socketInfo in socketManager.Get(numSockets))
         {
-            var pending = _elasticPool.Rent();
+            var pending = _PendingReplyPool.Rent();
             commandReplyHandler.RegisterPending(pending);
             requests[count++] = pending;
 
@@ -157,8 +157,8 @@ public class MachineCommandScope(
             {
                 Socket = socketInfo.Socket,
                 CorrelationId = pending.CorrelationId,
-                Payload = writer.WrittenMemory,
-                Topic = WyHashHelper.Hash(command.GetType().Name),
+                Payload = _writer.WrittenMemory,
+                Topic = topic
             });
         }
 
@@ -186,10 +186,10 @@ public class MachineCommandScope(
             {
                 // Ensure resources are cleaned up even if the task faulted.
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _elasticPool.Return(pending);
+                _PendingReplyPool.Return(pending);
             }
         }
 
-        writer.Clear();
+        _writer.Clear();
     }
 }

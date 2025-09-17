@@ -1,12 +1,6 @@
 ﻿using Faster.MessageBus.Contracts;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
-using static Faster.MessageBus.Shared.RuntimeUnionResolver;
 
 namespace Faster.MessageBus.Shared;
 
@@ -59,7 +53,7 @@ public static class ServiceCollectionExtensions
     /// <param name="configureOptions">Delegate to configure MeshMQ _options.</param>
     /// <returns>The updated service collection.</returns>
     public static IServiceCollection AddMessageBus(this IServiceCollection services,
-        Action<MessageBusOptions> options = default)
+        Action<MessageBrokerOptions> options = default)
     {
         if (options != null)
         {

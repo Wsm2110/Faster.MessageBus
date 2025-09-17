@@ -1,12 +1,10 @@
 ﻿using Faster.MessageBus.Contracts;
-using Faster.MessageBus.Features.Commands.Contracts;
-using Faster.MessageBus.Features.Commands.Scope.Cluster;
+using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Shared;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NetMQ.Sockets;
 
-namespace Faster.MessageBus.Features.Commands.Scope.Machine;
+namespace Faster.MessageBus.Features.Events;
 
 /// <summary>
 /// Manages a collection of <see cref="DealerSocket"/> instances for communication 
@@ -15,28 +13,23 @@ namespace Faster.MessageBus.Features.Commands.Scope.Machine;
 /// All Socket operations are executed on a dedicated scheduler thread 
 /// to guarantee thread safety without locks.
 /// </summary>
-internal class ClusterSocketManager : IMachineSocketManager, IDisposable
+internal class EventSocketManager : IEventSocketManager, IDisposable
 {
     /// <summary>
     /// Internal list of sockets keyed by MeshInfo.Id.
     /// </summary>
-    private readonly List<(string Id, DealerSocket Socket)> _socketInfoList = new();
+    private readonly List<(string Id, SubscriberSocket Socket)> _socketInfoList = new();
 
-    /// <summary>
-    /// Scheduler that provides single-threaded execution context for all Socket operations.
-    /// </summary>
-    private readonly ICommandScheduler _scheduler;
 
     /// <summary>
     /// Event aggregator for subscribing to mesh membership changes.
     /// </summary>
     private readonly IEventAggregator _eventAggregator;
-
-    /// <summary>
-    /// Handles replies received from RouterSockets.
-    /// </summary>
-    private readonly ICommandReplyHandler _handler;
     private readonly IOptions<MessageBrokerOptions> _options;
+    private readonly IEventScheduler _scheduler;
+    private readonly IEventHandlerProvider _eventHandlerProvider;
+    private readonly IEventReceivedHandler _eventReceivedHandler;
+    private readonly IEventScheduler _eventScheduler;
 
     /// <summary>
     /// Delegates stored for unsubscribing from mesh join/remove events during disposal.
@@ -52,19 +45,27 @@ internal class ClusterSocketManager : IMachineSocketManager, IDisposable
     public int Count => _socketInfoList.Count;
 
     /// <summary>
+    /// 
+    /// </summary>
+    public PublisherSocket PublisherSocket { get; set; }
+
+    /// <summary>
     /// Initializes a new instance of <see cref="MachineSocketManager"/>.
     /// Subscribes to mesh events and sets up the scheduler context.
     /// </summary>
-    public ClusterSocketManager(
-        [FromKeyedServices("clusterCommandScheduler")] ICommandScheduler scheduler,
+    public EventSocketManager(
+        LocalEndpoint endpoint,
         IEventAggregator eventAggregator,
-        ICommandReplyHandler commandReplyHandler,
+        IEventScheduler eventScheduler,
+        IEventHandlerProvider eventHandlerProvider,
+        IEventReceivedHandler eventReceivedHandler,
         IOptions<MessageBrokerOptions> options)
     {
-        _scheduler = scheduler;
         _eventAggregator = eventAggregator;
-        _handler = commandReplyHandler;
         _options = options;
+        _scheduler = eventScheduler;
+        _eventHandlerProvider = eventHandlerProvider;
+        _eventReceivedHandler = eventReceivedHandler;
 
         // Store delegates for later unsubscription.
         _onMeshJoined = data => AddSocket(data.Info);
@@ -73,21 +74,21 @@ internal class ClusterSocketManager : IMachineSocketManager, IDisposable
         // Subscribe to cluster mesh lifecycle events.
         eventAggregator.Subscribe(_onMeshJoined);
         eventAggregator.Subscribe(_onMeshRemoved);
-    }
 
-    /// <summary>
-    /// Returns up to <paramref name="count"/> sockets.
-    /// If fewer sockets are available, returns all of them.
-    /// If more are available, excess are skipped.
-    /// </summary>
-    public IEnumerable<(string Id, DealerSocket Socket)> Get(int count)
-    {
-        int take = Math.Min(count, _socketInfoList.Count);   // cap at requested count
-
-        for (int i = 0; i < take; i++)
-        {
-            yield return _socketInfoList[i];
-        }
+        PublisherSocket = new PublisherSocket();
+        PublisherSocket.Options.Linger = TimeSpan.Zero;             // Don't buffer on close
+        PublisherSocket.Options.SendHighWatermark = 1_000_000;      // Huge outbound queue
+        PublisherSocket.Options.ReceiveHighWatermark = 1_000_000;   // Huge inbound queue
+        PublisherSocket.Options.Backlog = 1024;                     // Enough for bursty connects
+        PublisherSocket.Options.TcpKeepalive = true;
+        PublisherSocket.Options.TcpKeepaliveIdle = TimeSpan.FromSeconds(30);
+        PublisherSocket.Options.TcpKeepaliveInterval = TimeSpan.FromSeconds(10);
+        PublisherSocket.Options.ReceiveBuffer = 1024 * 1024;        // OS recv buffer size
+        PublisherSocket.Options.SendBuffer = 1024 * 1024;           // OS send buffer size
+              
+        // find random port in range of 10000 - 12000
+        var port = PortFinder.FindAvailablePort(options.Value.RPCPort, port => PublisherSocket.Bind($"tcp://*:{port}"));
+        endpoint.PubPort = port;
     }
 
     /// <summary>
@@ -101,33 +102,22 @@ internal class ClusterSocketManager : IMachineSocketManager, IDisposable
     {
         _scheduler.Invoke(poller =>
         {
-            // Note: This filtering logic may need review. As written, it rejects a node if *any* configured
-            // application doesn't match, or if *any* configured node IP doesn't match.
-            if (_options.Value.Cluster.Applications.Any() && _options.Value.Cluster.Applications.Exists(app => app.Name != info.ApplicationName))
+            var subSocket = new SubscriberSocket();
+
+            // Connect to the remote node’s PUB Socket
+            subSocket.Connect($"tcp://{info.Address}:{info.PubPort}");
+
+            // Subscribe to all topics from this publisher
+            foreach (var topic in _eventHandlerProvider.GetRegisteredTopics())
             {
-                return;
+                subSocket.Subscribe(topic);
             }
 
-            if (_options.Value.Cluster.Nodes?.Exists(node => node.IpAddress != info.Address) ?? false)
-            {
-                return;
-            }
+            // Hook message receive _replyHandler
+            subSocket.ReceiveReady += _eventReceivedHandler.OnEventReceived;
 
-            var socket = new DealerSocket
-            {
-                // Assign a unique compact identity.
-                Options = { Identity = DealerIdentityGenerator.Create() }
-            };
-
-            // Register reply handler for incoming messages.
-            socket.ReceiveReady += _handler.ReceivedFromRouter!;
-
-            // Connect to the remote node's RPC endpoint.
-            socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
-
-            // Track Socket and add it to the poller.
-            _socketInfoList.Add((info.Id, socket));
-            poller.Add(socket);
+            // RegisterSelf the Socket with the poller
+            poller.Add(subSocket);
         });
     }
 
@@ -193,9 +183,11 @@ internal class ClusterSocketManager : IMachineSocketManager, IDisposable
     /// Safely unsubscribes handlers and disposes a DealerSocket.
     /// Must always be called on the scheduler thread.
     /// </summary>
-    private void CleanupSocket(DealerSocket socket)
+    private void CleanupSocket(SubscriberSocket socket)
     {
-        socket.ReceiveReady -= _handler.ReceivedFromRouter!;
+        socket.ReceiveReady -= _eventReceivedHandler.OnEventReceived!;
         socket.Dispose();
     }
 }
+
+

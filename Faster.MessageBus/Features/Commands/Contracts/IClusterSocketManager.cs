@@ -28,7 +28,7 @@ namespace Faster.MessageBus.Features.Commands.Contracts
         IEnumerable<DealerSocket> All { get; }
 
         /// <summary>
-        /// Gets the current number of active socket connections to cluster nodes.
+        /// Gets the current number of active Socket connections to cluster nodes.
         /// </summary>
         /// <value>The number of managed sockets.</value>
         int Count { get; }
@@ -40,10 +40,10 @@ namespace Faster.MessageBus.Features.Commands.Contracts
         void AddSocket(MeshInfo info);
 
         /// <summary>
-        /// Finds, closes, and removes a socket connection to a specific cluster node.
+        /// Finds, closes, and removes a Socket connection to a specific cluster node.
         /// </summary>
         /// <param name="meshInfo">The <see cref="MeshInfo"/> object identifying the node connection to remove.</param>
-        /// <returns><c>true</c> if a matching socket was found and successfully removed; otherwise, <c>false</c>.</returns>
+        /// <returns><c>true</c> if a matching Socket was found and successfully removed; otherwise, <c>false</c>.</returns>
         bool RemoveSocket(MeshInfo meshInfo);
     }
 }

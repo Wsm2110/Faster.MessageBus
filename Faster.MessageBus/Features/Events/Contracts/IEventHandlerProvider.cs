@@ -16,9 +16,9 @@ public interface IEventHandlerProvider
     void AddEventHandler<TEvent>(string topic) where TEvent : IEvent;
 
     /// <summary>
-    /// Gets the byte array _handler associated with a specific topic.
+    /// Gets the byte array _replyHandler associated with a specific topic.
     /// </summary>
-    /// <param name="topic">The topic for which to retrieve the _handler.</param>
+    /// <param name="topic">The topic for which to retrieve the _replyHandler.</param>
     /// <returns>An action that takes a byte array as input (the serialized message).</returns>
     Action<byte[]> GetHandler(string topic);
 

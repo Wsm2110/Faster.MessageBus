@@ -7,6 +7,7 @@ using ICommand = Faster.MessageBus.Contracts.ICommand;
 var builder = new ServiceCollection().AddMessageBus(options =>
 {
     options.ApplicationName = "node1";
+    options.RPCPort = 52345;
 });
 var provider = builder.BuildServiceProvider();
 
