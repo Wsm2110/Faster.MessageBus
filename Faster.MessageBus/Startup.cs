@@ -23,8 +23,7 @@ internal class Startup : IStartup
     {
         // Note, due to lazy loading we have to preload these services    
         serviceProvider.GetService(typeof(CommandServer));
-        serviceProvider.GetService(typeof(IEventPublisher));
-        serviceProvider.GetService(typeof(IEventSubscriber));    
+        serviceProvider.GetService(typeof(IEventDispatcher));     
         serviceProvider.GetService(typeof(ICommandMessageHandler));
         serviceProvider.GetService(typeof(IHeartBeatMonitor));
 

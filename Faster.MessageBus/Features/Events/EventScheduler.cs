@@ -1,8 +1,10 @@
-﻿using Faster.MessageBus.Features.Commands;
+﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Extensions;
 using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Features.Events.Shared;
 using NetMQ;
+using System.Runtime.InteropServices;
 
 namespace Faster.MessageBus.Features.Events;
 
@@ -54,7 +56,7 @@ public class EventScheduler : IEventScheduler, IDisposable
         // Create and configure the dedicated thread to run the poller's event loop.
         _thread = new Thread(() =>
         {
-            _poller.Run();
+            _poller.RunAsync();
         })
         { IsBackground = true, Name = name }; // Run as a background thread so it doesn't prevent application exit.
 
@@ -76,15 +78,9 @@ public class EventScheduler : IEventScheduler, IDisposable
     {
         // Dequeue and process all currently available commands.
         while (_eventQueue.TryDequeue(out var command, TimeSpan.Zero))
-        {
-            Span<byte> topicBuffer = stackalloc byte[sizeof(ulong)];
-
-            // Write the ulong values directly into the stack-allocated spans for high performance.
-            BitConverter.TryWriteBytes(topicBuffer, command.Topic);
-
-            // SendAsync the multi-part message.
+        {         
             command.Socket.SendMoreFrameEmpty()
-                          .SendSpanFrame(topicBuffer, true)
+                          .SendSpanFrame(MemoryMarshal.AsBytes(command.Topic.AsSpan()), true)
                           .SendSpanFrame(command.Payload.Span);
         }
     }

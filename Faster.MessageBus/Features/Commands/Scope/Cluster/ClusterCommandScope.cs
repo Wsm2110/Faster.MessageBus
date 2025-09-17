@@ -1,6 +1,8 @@
-﻿using Faster.MessageBus.Contracts;
+﻿using CommunityToolkit.HighPerformance.Buffers;
+using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
+using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -25,13 +27,18 @@ public class ClusterCommandScope(
     /// A high-performance object pool for reusing <see cref="PendingReply{TResult}"/> objects. This significantly
     /// reduces memory allocations and GC pressure during high-throughput scatter-gather operations.
     /// </summary>
-    private readonly ElasticPool _elasticPool = new ElasticPool(1024);
+    private readonly ElasticPool _PendingReplyPool = new ElasticPool(1024);
+
+    /// <summary>
+    /// A reusable buffer writer that uses the ArrayPool to minimize memory allocations when serializing commands.
+    /// It is a class field to be reused across multiple calls to the streaming SendAsync method.
+    /// </summary>
+    private readonly ArrayPoolBufferWriter<byte> _writer = new ArrayPoolBufferWriter<byte>();
 
     /// <summary>
     /// Broadcasts a command to all connected machine-local endpoints and returns an asynchronous stream of their responses.
     /// </summary>
     /// <typeparam name="TResponse">The expected type of the response objects.</typeparam>
-    /// <param name="topic">The unique identifier for the command, used for routing.</param>
     /// <param name="command">The command object containing the data to be sent.</param>
     /// <param name="timeout">The maximum total time to wait for all responses to arrive.</param>
     /// <param name="ct">A cancellation token that can be used to cancel the entire operation.</param>
@@ -45,33 +52,35 @@ public class ClusterCommandScope(
     /// 5. Responses are awaited individually. As each response arrives, it is yielded to the caller,
     ///    and its associated resources are immediately returned to their respective pools.
     /// </remarks>
-    public async IAsyncEnumerable<TResponse> Send<TResponse>(
-        ulong topic,
+    public async IAsyncEnumerable<TResponse> SendAsync<TResponse>(
         ICommand<TResponse> command,
         TimeSpan timeout,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var numSockets = socketManager.Count;
-        if (numSockets == 0) yield break;
+        var count = socketManager.Count;
+        if (count == 0)
+        {
+            yield break;
+        }
 
-        var requests = new PendingReply<byte[]>[numSockets];
-        var writer = new ArrayBufferWriter<byte>();
-        serializer.Serialize(command, writer);
+        var requests = new PendingReply<byte[]>[count];
+        serializer.Serialize(command, _writer);
+        var topic = WyHashHelper.Hash(command.GetType().Name);
 
         // Scatter Phase: Dispatch a request to each Socket.
-        int count = 0;
-        foreach (var socket in socketManager.All)
+        int requestIndex = 0;
+        foreach (var socketinfo in socketManager.Get(count))
         {
-            var pending = _elasticPool.Rent();
+            var pending = _PendingReplyPool.Rent();
             commandReplyHandler.RegisterPending(pending);
-            requests[count++] = pending;
+            requests[requestIndex++] = pending;
 
             scheduler.Invoke(new ScheduleCommand
             {
-                Socket = socket,
+                Socket = socketinfo.Socket,
                 CorrelationId = pending.CorrelationId,
-                Payload = writer.WrittenMemory,
-                Topic = topic,
+                Payload = _writer.WrittenMemory,
+                Topic = WyHashHelper.Hash(command.GetType().Name)
             });
         }
 
@@ -82,82 +91,89 @@ public class ClusterCommandScope(
         using var _ = linkedCts.Token.Register(() =>
         {
             // Best-effort attempt to fault all outstanding requests on timeout.
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < requestIndex; i++)
             {
-                requests[i]?.SetException(TimedOutException);
+                var pending = requests[i];
+                if (!pending.IsCompleted)
+                {
+                    pending?.SetException(TimedOutException);
+                }
             }
         });
 
         // Gather Phase: Await each reply and yield it as it arrives.
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < requestIndex; i++)
         {
             var pending = requests[i];
             try
             {
                 ReadOnlyMemory<byte> respBytes = await pending.AsValueTask().ConfigureAwait(false);
-                var response = serializer.Deserialize<TResponse>(respBytes);
-                yield return response;
+                yield return serializer.Deserialize<TResponse>(respBytes);
             }
             finally
             {
                 // Crucially, unregister and return the pooled object inside the loop
                 // to make it available for reuse as quickly as possible.
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _elasticPool.Return(pending);
+                _PendingReplyPool.Return(pending);
             }
         }
 
         // Final cleanup for the serialized payload buffer.
-        writer.Clear();
+        _writer.Clear();
     }
 
     /// <summary>
-    /// Broadcasts a command to all listening endpoints on the local machine and awaits their completion, without returning any data.
+    /// Broadcasts a command without a specific response type to all connected machine-local endpoints and awaits their completion acknowledgments.
     /// </summary>
-    /// <remarks>The method name "SendAsync" is unconventional; standard C# naming would be "SendAsync".</remarks>
-    /// <param name="topic">The unique identifier for the command, used for routing.</param>
-    /// <param name="command">The command object containing the data to be sent.</param>
-    /// <param name="timeout">The maximum time to wait for completion acknowledgments from all endpoints.</param>
-    /// <param name="ct">An optional cancellation token to cancel the operation externally.</param>
-    /// <returns>A <see cref="Task"/> that completes when all endpoints have acknowledged the command or the operation times out.</returns>
-    public async Task SendASync(ulong topic, ICommand command, TimeSpan timeout, CancellationToken ct = default)
+    /// <param name="command">The command object to be sent.</param>
+    /// <param name="timeout">The maximum time to wait for acknowledgments from all endpoints.</param>
+    /// <param name="ct">A cancellation token that can be used to cancel the operation.</param>
+    /// <returns>A <see cref="Task"/> that completes when all endpoints have acknowledged the command, the operation is cancelled, or the timeout is reached.</returns>
+    public async Task SendAsync(ICommand command, TimeSpan timeout, CancellationToken ct = default)
     {
         var numSockets = socketManager.Count;
-        if (numSockets == 0) return;
+        if (numSockets == 0)
+        {
+            return;
+        }
 
         var requests = new PendingReply<byte[]>[numSockets];
-        var writer = new ArrayBufferWriter<byte>();
-        serializer.Serialize(command, writer);
+        // Using a local writer here as this method is less performance-critical than the streaming version.
+        serializer.Serialize(command, _writer);
 
-        // Scatter Phase
+        var topic = WyHashHelper.Hash(command.GetType().Name);
+
+        // Scatter Phase: Dispatch the command to each connected Socket.
         int count = 0;
-        foreach (var socket in socketManager.All)
+        foreach (var socketInfo in socketManager.Get(numSockets))
         {
-            var pending = _elasticPool.Rent();
+            var pending = _PendingReplyPool.Rent();
             commandReplyHandler.RegisterPending(pending);
             requests[count++] = pending;
 
-            scheduler.Invoke(new ScheduleCommand // Assuming 'ScheduleEvent' is a typo for 'ProcessCommand'
+            scheduler.Invoke(new ScheduleCommand
             {
-                Socket = socket,
+                Socket = socketInfo.Socket,
                 CorrelationId = pending.CorrelationId,
-                Payload = writer.WrittenMemory,
-                Topic = topic,
+                Payload = _writer.WrittenMemory,
+                Topic = topic
             });
         }
 
-        // Timeout/Cancellation
+        // Setup a single timeout/cancellation for all pending requests.
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linkedCts.CancelAfter(timeout);
         using var _ = linkedCts.Token.Register(() =>
         {
-            for (int i = 0; i < requests.Length; i++)
+            // On timeout, attempt to fault any outstanding requests.
+            for (int i = 0; i < count; i++)
             {
                 requests[i]?.SetException(TimedOutException);
             }
         });
 
-        // Gather Phase (awaiting completion without yielding data)
+        // Gather Phase: Await completion of each request without processing a return value.
         for (int i = 0; i < count; i++)
         {
             var pending = requests[i];
@@ -167,11 +183,12 @@ public class ClusterCommandScope(
             }
             finally
             {
+                // Ensure resources are cleaned up even if the task faulted.
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _elasticPool.Return(pending);
+                _PendingReplyPool.Return(pending);
             }
         }
 
-        writer.Clear();
+        _writer.Clear();
     }
 }

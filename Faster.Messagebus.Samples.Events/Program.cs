@@ -15,8 +15,12 @@ var messageBus = provider.GetRequiredService<IMessageBroker>();
 // 4. SendAsync a "request-response" command.
 // This command implements ICommand<string>, indicating it expects a string in return.
 // The 'await' will pause execution until a response is received or a timeout occurs.
-await messageBus.EventDispatcher.PublishAsync(new UserLoggedInEvent("I AM GROOT"));
 
+while (true)
+{
+    messageBus.EventDispatcher.Publish(new UserLoggedInEvent("I AM GROOT"));
+    await Task.Delay(TimeSpan.FromSeconds(1));
+}
 // 5. Print the result from the request-response command.
 Console.ReadKey();
 

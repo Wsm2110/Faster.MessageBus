@@ -85,7 +85,7 @@ public interface IEventSerializer
 /// Serializes and deserializes objects using MessagePack with LZ4 compression.
 /// Implements the <see cref="ICommandSerializer"/> interface.
 /// </summary>
-public class CommandSerializer : IEventSerializer
+public class EventSerializer : IEventSerializer
 {
     /// <summary>
     /// Holds the configured MessagePack _options, including LZ4 compression and the resolver.
@@ -96,7 +96,7 @@ public class CommandSerializer : IEventSerializer
     /// Initializes a new instance of the <see cref="CommandSerializer"/> class.
     /// It configures the default MessagePack _options to use LZ4 block array compression and the standard resolver.
     /// </summary>
-    public CommandSerializer()
+    public EventSerializer()
     {
         _options = MessagePackSerializerOptions.Standard
             .WithCompression(MessagePackCompression.Lz4BlockArray)

@@ -15,7 +15,7 @@ namespace Faster.MessageBus.Features.Commands.Scope.Machine;
 /// All Socket operations are executed on a dedicated scheduler thread 
 /// to guarantee thread safety without locks.
 /// </summary>
-internal class ClusterSocketManager : IMachineSocketManager, IDisposable
+internal class ClusterSocketManager : IClusterSocketManager, IDisposable
 {
     /// <summary>
     /// Internal list of sockets keyed by MeshInfo.Id.

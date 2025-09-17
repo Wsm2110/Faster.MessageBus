@@ -37,7 +37,7 @@ internal class EventReceivedHandler(IEventHandlerProvider eventHandlerProvider ,
         // Dispatch the payload to the appropriate command handler.
         var payload = new ReadOnlySequence<byte>(payloadFrame.Buffer, 0, payloadFrame.MessageSize);
 
-        await eventHandlerProvider.GetHandler(topic).Invoke(serviceProvider, serializer, payload);
+        //await eventHandlerProvider.GetHandler(topic).Invoke(serviceProvider, serializer, payload);
     }
 }
 

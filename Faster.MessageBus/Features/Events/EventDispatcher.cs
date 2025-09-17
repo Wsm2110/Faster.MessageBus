@@ -3,6 +3,7 @@ using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Features.Events.Shared;
 using Faster.MessageBus.Shared;
+using System.Runtime.InteropServices;
 
 namespace Faster.MessageBus.Features.Events;
 
@@ -25,7 +26,7 @@ public class EventDispatcher(
     {
         using var writer = new ArrayPoolBufferWriter<byte>();
         serializer.Serialize(@event, writer);
-        var topic = WyHashHelper.Hash(@event.GetType().Name);
-        scheduler.Invoke(new ScheduleEvent(socketManager.PublisherSocket, topic, writer.WrittenMemory));  
+        var topic = @event.GetType().Name;
+        scheduler.Invoke(new ScheduleEvent(socketManager.PublisherSocket, topic, writer.WrittenMemory));
     }
 }

@@ -85,9 +85,9 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
         PublisherSocket.Options.TcpKeepaliveInterval = TimeSpan.FromSeconds(10);
         PublisherSocket.Options.ReceiveBuffer = 1024 * 1024;        // OS recv buffer size
         PublisherSocket.Options.SendBuffer = 1024 * 1024;           // OS send buffer size
-              
+
         // find random port in range of 10000 - 12000
-        var port = PortFinder.FindAvailablePort(options.Value.RPCPort, port => PublisherSocket.Bind($"tcp://*:{port}"));
+        var port = PortFinder.FindAvailablePort(options.Value.PublishPort, port => PublisherSocket.Bind($"tcp://*:{port}"));
         endpoint.PubPort = port;
     }
 
@@ -104,18 +104,25 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
         {
             var subSocket = new SubscriberSocket();
 
+            subSocket.ReceiveReady += _eventReceivedHandler.OnEventReceived;
+
             // Connect to the remote node’s PUB Socket
             subSocket.Connect($"tcp://{info.Address}:{info.PubPort}");
 
             // Subscribe to all topics from this publisher
-            foreach (var topic in _eventHandlerProvider.GetRegisteredTopics())
-            {
-                subSocket.Subscribe(topic);
-            }
+            //bool any = false;
+            //foreach (var topic in _eventHandlerProvider.GetRegisteredTopics())
+            //{
+            //    subSocket.Subscribe(topic);
+            //    any = true;
+            //}
 
+            //if (!any)
+            //{
+            //    subSocket.Subscribe("*");
+            //}
             // Hook message receive _replyHandler
-            subSocket.ReceiveReady += _eventReceivedHandler.OnEventReceived;
-
+            subSocket.Subscribe("");
             // RegisterSelf the Socket with the poller
             poller.Add(subSocket);
         });
