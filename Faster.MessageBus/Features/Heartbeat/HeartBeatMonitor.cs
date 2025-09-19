@@ -3,36 +3,49 @@ using Faster.MessageBus.Features.Heartbeat.Contracts;
 using NetMQ;
 
 namespace Faster.MessageBus.Features.Heartbeat
-{ 
+{
     /// <summary>
-    /// Periodically checks for expired MeshInfo entries and removes them from the mesh storage.
+    /// Periodically monitors the health of mesh nodes by checking for expired entries
+    /// and removing inactive nodes from the discovery service.
     /// </summary>
     internal class HeartBeatMonitor : IHeartBeatMonitor, IDisposable
     {
-        private readonly IMeshDiscoveryService _discoveryService;     // Storage of all known mesh nodes
-        private readonly INetMQPoller _poller;      // NetMQ event loop
-        private bool disposedValue;
+        /// <summary>
+        /// The service responsible for storing and managing information about nodes in the mesh.
+        /// </summary>
+        private readonly IMeshDiscoveryService _discoveryService;
+
+        /// <summary>
+        /// The NetMQ event loop that drives the timer.
+        /// </summary>
+        private readonly INetMQPoller _poller;
+
+        /// <summary>
+        /// The timer that periodically triggers the check for inactive nodes.
+        /// </summary>
         private NetMQTimer _timer;
+
+        private bool disposedValue;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="HeartBeatMonitor"/> class.
         /// </summary>
-        /// <param name="storage">Mesh storage to track mesh nodes.</param>
+        /// <param name="discoveryService">The discovery service used to track and manage mesh nodes.</param>
         public HeartBeatMonitor(IMeshDiscoveryService discoveryService)
         {
             _discoveryService = discoveryService;
 
-            // Timer triggers every 60 seconds to check for expired nodes
+            // Create a timer that will trigger the cleanup method at regular intervals.
             _timer = new NetMQTimer(TimeSpan.FromMilliseconds(100));
             _timer.Elapsed += _discoveryService.RemoveInactiveApplications;
 
-            // Attach the timer to the poller
+            // The poller is a dedicated background thread that manages timers and sockets.
             _poller = new NetMQPoller { _timer };
             Start();
         }
 
         /// <summary>
-        /// Starts the NetMQ poller and begins periodic heartbeat checks.
+        /// Starts the NetMQ poller in the background, which begins the periodic heartbeat checks.
         /// </summary>
         public void Start()
         {
@@ -40,33 +53,41 @@ namespace Faster.MessageBus.Features.Heartbeat
         }
 
         /// <summary>
-        /// Stops the NetMQ poller and halts heartbeat checks.
+        /// Asynchronously stops the NetMQ poller, halting all heartbeat checks.
         /// </summary>
         public void Stop()
         {
             _poller.StopAsync();
         }
 
+        /// <summary>
+        /// Cleans up the resources used by the monitor.
+        /// </summary>
+        /// <param name="disposing">True if called from <see cref="Dispose()"/>; false if called from a finalizer.</param>
         protected virtual void Dispose(bool disposing)
         {
             if (!disposedValue)
             {
                 if (disposing)
                 {
+                    // Unsubscribe the event handler to prevent memory leaks.
                     _timer.Elapsed -= _discoveryService.RemoveInactiveApplications;
+
+                    // Stop and dispose the poller thread and its associated resources.
                     _poller.StopAsync();
                     _poller.Dispose();
                 }
 
-                // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-                // TODO: set large fields to null
                 disposedValue = true;
             }
         }
 
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
         public void Dispose()
         {
-            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method.
             Dispose(disposing: true);
             GC.SuppressFinalize(this);
         }

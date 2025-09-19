@@ -1,7 +1,6 @@
 ﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using ICommand = Faster.MessageBus.Contracts.ICommand;
 
 // --- Application Entry Point ---
 
@@ -12,16 +11,8 @@ var provider = builder.BuildServiceProvider();
 // 2. Resolve the main message broker service from the container.
 var messageBus = provider.GetRequiredService<IMessageBroker>();
 
-// 4. SendAsync a "request-response" command.
-// This command implements ICommand<string>, indicating it expects a string in return.
-// The 'await' will pause execution until a response is received or a timeout occurs.
-
-while (true)
-{
-    messageBus.EventDispatcher.Publish(new UserLoggedInEvent("I AM GROOT"));
-    await Task.Delay(TimeSpan.FromSeconds(1));
-}
-// 5. Print the result from the request-response command.
+// Fire event...
+messageBus.EventDispatcher.Publish(new UserLoggedInEvent("I AM GROOT"));
 Console.ReadKey();
 
 /// <summary>
@@ -42,6 +33,7 @@ public class UserLoggedInEventHandler : IEventHandler<UserLoggedInEvent>
 {
     public Task Handle(UserLoggedInEvent msg)
     {
-        throw new NotImplementedException();
+        Console.WriteLine($"user {msg.Name} logged in");
+        return Task.CompletedTask;
     }
 }

@@ -23,10 +23,10 @@ public class EventDispatcher(
     /// </summary>
     /// <param name="event">The event to publish.</param>
     public void Publish(IEvent @event)
-    {
-        using var writer = new ArrayPoolBufferWriter<byte>();
+    {       
+        var writer = new ArrayPoolBufferWriter<byte>();
         serializer.Serialize(@event, writer);
         var topic = @event.GetType().Name;
-        scheduler.Invoke(new ScheduleEvent(socketManager.PublisherSocket, topic, writer.WrittenMemory));
+        scheduler.Invoke(new ScheduleEvent(socketManager.PublisherSocket, topic, writer));
     }
 }

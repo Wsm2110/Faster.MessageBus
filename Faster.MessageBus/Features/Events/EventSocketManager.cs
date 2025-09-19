@@ -7,32 +7,44 @@ using NetMQ.Sockets;
 namespace Faster.MessageBus.Features.Events;
 
 /// <summary>
-/// Manages a collection of <see cref="DealerSocket"/> instances for communication 
-/// with other nodes on the same machine. 
-/// 
-/// All Socket operations are executed on a dedicated scheduler thread 
-/// to guarantee thread safety without locks.
+/// Manages the lifecycle of NetMQ sockets for event-based communication.
+/// It dynamically creates and destroys connections to other nodes by listening to mesh membership changes.
+/// All socket operations are executed on a dedicated scheduler thread to guarantee thread safety without locks.
 /// </summary>
 internal class EventSocketManager : IEventSocketManager, IDisposable
 {
     /// <summary>
-    /// Internal list of sockets keyed by MeshInfo.Id.
+    /// A thread-safe list of active subscriber sockets, keyed by the unique ID of the mesh node they connect to.
     /// </summary>
     private readonly List<(string Id, SubscriberSocket Socket)> _socketInfoList = new();
 
-
     /// <summary>
-    /// Event aggregator for subscribing to mesh membership changes.
+    /// Used for subscribing to and unsubscribing from mesh membership changes.
     /// </summary>
     private readonly IEventAggregator _eventAggregator;
-    private readonly IOptions<MessageBrokerOptions> _options;
-    private readonly IEventScheduler _scheduler;
-    private readonly IEventHandlerProvider _eventHandlerProvider;
-    private readonly IEventReceivedHandler _eventReceivedHandler;
-    private readonly IEventScheduler _eventScheduler;
 
     /// <summary>
-    /// Delegates stored for unsubscribing from mesh join/remove events during disposal.
+    /// Application-level configuration options.
+    /// </summary>
+    private readonly IOptions<MessageBrokerOptions> _options;
+
+    /// <summary>
+    /// The dedicated thread scheduler that ensures all socket operations are thread-safe.
+    /// </summary>
+    private readonly IEventScheduler _scheduler;
+
+    /// <summary>
+    /// Provides topic information for socket subscriptions.
+    /// </summary>
+    private readonly IEventHandlerProvider _eventHandlerProvider;
+
+    /// <summary>
+    /// The handler that processes incoming messages from subscriber sockets.
+    /// </summary>
+    private readonly IEventReceivedHandler _eventReceivedHandler;
+
+    /// <summary>
+    /// Pre-created delegates for subscribing to mesh events, stored for later unsubscription during disposal.
     /// </summary>
     private readonly Action<MeshJoined> _onMeshJoined;
     private readonly Action<MeshRemoved> _onMeshRemoved;
@@ -40,19 +52,26 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     private bool _disposed;
 
     /// <summary>
-    /// Gets the number of sockets currently managed.
+    /// Gets the number of active subscriber sockets currently managed.
     /// </summary>
     public int Count => _socketInfoList.Count;
 
     /// <summary>
-    /// 
+    /// Gets the single, outbound publisher socket used by this node to broadcast its own events.
     /// </summary>
     public PublisherSocket PublisherSocket { get; set; }
 
     /// <summary>
-    /// Initializes a new instance of <see cref="MachineSocketManager"/>.
-    /// Subscribes to mesh events and sets up the scheduler context.
+    /// Initializes a new instance of the <see cref="EventSocketManager"/> class.
+    /// This constructor sets up the node's own publisher socket and subscribes to mesh events
+    /// to manage connections to other nodes.
     /// </summary>
+    /// <param name="endpoint">An object that will be updated with the dynamically chosen port for publishing.</param>
+    /// <param name="eventAggregator">The event aggregator for mesh lifecycle events.</param>
+    /// <param name="eventScheduler">The scheduler for thread-safe socket operations.</param>
+    /// <param name="eventHandlerProvider">The provider for registered event topics.</param>
+    /// <param name="eventReceivedHandler">The handler for incoming event messages.</param>
+    /// <param name="options">The application configuration options.</param>
     public EventSocketManager(
         LocalEndpoint endpoint,
         IEventAggregator eventAggregator,
@@ -67,74 +86,67 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
         _eventHandlerProvider = eventHandlerProvider;
         _eventReceivedHandler = eventReceivedHandler;
 
-        // Store delegates for later unsubscription.
+        // Store delegates in fields so they can be referenced for unsubscription in Dispose().
         _onMeshJoined = data => AddSocket(data.Info);
         _onMeshRemoved = data => RemoveSocket(data.Info);
 
-        // Subscribe to cluster mesh lifecycle events.
+        // Subscribe to events that announce when other nodes join or leave the mesh.
         eventAggregator.Subscribe(_onMeshJoined);
         eventAggregator.Subscribe(_onMeshRemoved);
 
+        // Create and configure the single Publisher socket for this node.
         PublisherSocket = new PublisherSocket();
-        PublisherSocket.Options.Linger = TimeSpan.Zero;             // Don't buffer on close
-        PublisherSocket.Options.SendHighWatermark = 1_000_000;      // Huge outbound queue
-        PublisherSocket.Options.ReceiveHighWatermark = 1_000_000;   // Huge inbound queue
-        PublisherSocket.Options.Backlog = 1024;                     // Enough for bursty connects
+        PublisherSocket.Options.Linger = TimeSpan.Zero;           // Discard unsent messages on close
+        PublisherSocket.Options.SendHighWatermark = 1_000_000;    // Allow a large buffer of outgoing messages
+        PublisherSocket.Options.ReceiveHighWatermark = 1_000_000; // Allow a large buffer of incoming messages
+        PublisherSocket.Options.Backlog = 1024;                   // Connection queue size for bursty connects
         PublisherSocket.Options.TcpKeepalive = true;
         PublisherSocket.Options.TcpKeepaliveIdle = TimeSpan.FromSeconds(30);
         PublisherSocket.Options.TcpKeepaliveInterval = TimeSpan.FromSeconds(10);
-        PublisherSocket.Options.ReceiveBuffer = 1024 * 1024;        // OS recv buffer size
-        PublisherSocket.Options.SendBuffer = 1024 * 1024;           // OS send buffer size
+        PublisherSocket.Options.ReceiveBuffer = 1024 * 1024;      // Set OS receive buffer size to 1MB
+        PublisherSocket.Options.SendBuffer = 1024 * 1024;         // Set OS send buffer size to 1MB
 
-        // find random port in range of 10000 - 12000
+        // Find an available TCP port and bind the publisher socket to it.
         var port = PortFinder.FindAvailablePort(options.Value.PublishPort, port => PublisherSocket.Bind($"tcp://*:{port}"));
+
+        // Update the shared endpoint object so other parts of the application know which port was chosen.
         endpoint.PubPort = port;
     }
 
     /// <summary>
-    /// Adds a new DealerSocket for the given mesh node. 
-    /// The Socket is only created if:
-    /// 1. No Socket already exists for the node, AND
-    /// 2. The node is on the local machine.
+    /// Creates and configures a new <see cref="SubscriberSocket"/> to connect to a remote node.
+    /// This entire operation is scheduled on a dedicated thread to ensure thread safety.
     /// </summary>
-    /// <param name="info">The mesh node information used to configure the Socket.</param>
+    /// <param name="info">The mesh node information containing the address and port to connect to.</param>
     public void AddSocket(MeshInfo info)
     {
+        // Offload socket creation and configuration to the scheduler's thread.
         _scheduler.Invoke(poller =>
         {
             var subSocket = new SubscriberSocket();
 
+            // Hook the message received handler to process incoming events.
             subSocket.ReceiveReady += _eventReceivedHandler.OnEventReceived;
 
-            // Connect to the remote node’s PUB Socket
+            // Connect to the remote node’s PUB Socket.
             subSocket.Connect($"tcp://{info.Address}:{info.PubPort}");
 
-            // Subscribe to all topics from this publisher
-            //bool any = false;
-            //foreach (var topic in _eventHandlerProvider.GetRegisteredTopics())
-            //{
-            //    subSocket.Subscribe(topic);
-            //    any = true;
-            //}
-
-            //if (!any)
-            //{
-            //    subSocket.Subscribe("*");
-            //}
-            // Hook message receive _replyHandler
+            // Subscribe to all topics. An empty string is NetMQ's wildcard for all topics.
             subSocket.Subscribe("");
-            // RegisterSelf the Socket with the poller
+
+            // Add the newly created socket to the poller to begin receiving messages.
             poller.Add(subSocket);
         });
     }
 
     /// <summary>
-    /// Removes and disposes the Socket for the specified mesh node. 
-    /// Schedules cleanup work on the scheduler thread.
+    /// Finds, removes, and disposes the <see cref="SubscriberSocket"/> for a specified mesh node.
+    /// This cleanup operation is scheduled on a dedicated thread for safety.
     /// </summary>
-    /// <param name="meshInfo">Mesh node identifying which Socket to remove.</param>
+    /// <param name="meshInfo">The mesh node identifying which socket to remove.</param>
     public void RemoveSocket(MeshInfo meshInfo)
     {
+        // Offload socket removal to the scheduler's thread.
         _scheduler.Invoke(poller =>
         {
             for (int i = 0; i < _socketInfoList.Count; i++)
@@ -143,14 +155,14 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
 
                 if (socketInfo.Id == meshInfo.Id)
                 {
-                    // Finally, remove from dictionary.
-                    _socketInfoList.RemoveAt(i);
-
-                    // Remove Socket from poller first.
+                    // Remove the socket from the poller first to stop receiving events.
                     poller.Remove(socketInfo.Socket);
 
-                    // Unsubscribe + dispose Socket.
+                    // Unsubscribe event handlers and dispose of the socket resources.
                     CleanupSocket(socketInfo.Socket);
+
+                    // Finally, remove the socket from the managed list.
+                    _socketInfoList.RemoveAt(i);
                     break;
                 }
             }
@@ -158,19 +170,19 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     }
 
     /// <summary>
-    /// Disposes this manager and all associated sockets.
-    /// Ensures event unsubscription and thread-safe cleanup.
+    /// Disposes this manager and all associated sockets and resources.
+    /// Ensures proper event unsubscription and thread-safe cleanup of all network resources.
     /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
 
-        // Stop receiving mesh updates.
+        // Stop listening for any new nodes joining or leaving.
         _eventAggregator.Unsubscribe(_onMeshJoined);
         _eventAggregator.Unsubscribe(_onMeshRemoved);
 
-        // Clean up sockets on scheduler thread.
+        // Schedule the final cleanup of all active sockets on the scheduler thread.
         _scheduler.Invoke(poller =>
         {
             foreach (var socketinfo in _socketInfoList)
@@ -181,20 +193,19 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
             _socketInfoList.Clear();
         });
 
-        // Dispose the scheduler after all scheduled work is done.
+        // Dispose the scheduler itself, which will stop its dedicated thread.
         _scheduler.Dispose();
         GC.SuppressFinalize(this);
     }
 
     /// <summary>
-    /// Safely unsubscribes handlers and disposes a DealerSocket.
-    /// Must always be called on the scheduler thread.
+    /// Safely unsubscribes event handlers and disposes a <see cref="SubscriberSocket"/>.
+    /// This is a private helper that must always be called on the scheduler's thread.
     /// </summary>
+    /// <param name="socket">The socket to clean up.</param>
     private void CleanupSocket(SubscriberSocket socket)
     {
         socket.ReceiveReady -= _eventReceivedHandler.OnEventReceived!;
         socket.Dispose();
     }
 }
-
-

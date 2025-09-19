@@ -1,4 +1,5 @@
 ﻿using Faster.MessageBus.Contracts;
+using System.Buffers;
 
 namespace Faster.MessageBus.Features.Events.Contracts;
 
@@ -20,7 +21,7 @@ public interface IEventHandlerProvider
     /// </summary>
     /// <param name="topic">The topic for which to retrieve the _replyHandler.</param>
     /// <returns>An action that takes a byte array as input (the serialized message).</returns>
-    Action<byte[]> GetHandler(string topic);
+    Action<IServiceProvider, IEventSerializer, byte[]> GetHandler(string topic);
 
     /// <summary>
     /// Returns the list of currently registered consumer topic names.

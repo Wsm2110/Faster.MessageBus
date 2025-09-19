@@ -15,6 +15,6 @@ internal interface IEventHandlerAssemblyScanner
     /// Discovers consumer types that implement INotifcation<TEvent> and returns a list of them.
     /// </summary>
     /// <returns>A list of tuples containing the discovered message types and their corresponding consumer types.</returns>
-    IEnumerable<(Type consumerImpl, Type messageType)> FindEventTypes();
+    IEnumerable<Type> FindAllEvents();
 }
 

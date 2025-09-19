@@ -20,7 +20,7 @@ public record struct MeshInfo()
     [property: Key(4)]
     public ushort PubPort { get; set; }
 
-    [property: Key(5)]
+    [IgnoreMember]   
     public string Id { get; set; }
 
     [IgnoreMember]

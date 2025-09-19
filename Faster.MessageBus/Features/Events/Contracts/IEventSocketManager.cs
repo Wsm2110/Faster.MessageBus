@@ -3,11 +3,31 @@ using NetMQ.Sockets;
 
 namespace Faster.MessageBus.Features.Events.Contracts;
 
-    public interface IEventSocketManager
-    {
+/// <summary>
+/// Defines a contract for a manager that handles the lifecycle of NetMQ sockets for event communication.
+/// Implementations are responsible for creating, tracking, and disposing of sockets as nodes join and leave the mesh.
+/// </summary>
+public interface IEventSocketManager
+{
+    /// <summary>
+    /// Gets or sets the single, outbound publisher socket used by this node to broadcast its own events.
+    /// </summary>
+    PublisherSocket PublisherSocket { get; set; }
 
-        void AddSocket(MeshInfo info);
-        void Dispose();
-        PublisherSocket PublisherSocket { get; set; }
-        void RemoveSocket(MeshInfo meshInfo);
-    }
+    /// <summary>
+    /// Creates and configures a new socket to connect to a remote node.
+    /// </summary>
+    /// <param name="info">The mesh node information containing the address and port to connect to.</param>
+    void AddSocket(MeshInfo info);
+
+    /// <summary>
+    /// Finds, removes, and disposes the socket connected to a specified mesh node.
+    /// </summary>
+    /// <param name="meshInfo">The mesh node identifying which socket to remove.</param>
+    void RemoveSocket(MeshInfo meshInfo);
+
+    /// <summary>
+    /// Disposes the manager and all associated sockets and resources.
+    /// </summary>
+    void Dispose();
+}

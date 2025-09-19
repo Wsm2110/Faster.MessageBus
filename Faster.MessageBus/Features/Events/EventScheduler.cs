@@ -5,6 +5,7 @@ using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Features.Events.Shared;
 using NetMQ;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Faster.MessageBus.Features.Events;
 
@@ -78,10 +79,11 @@ public class EventScheduler : IEventScheduler, IDisposable
     {
         // Dequeue and process all currently available commands.
         while (_eventQueue.TryDequeue(out var command, TimeSpan.Zero))
-        {         
-            command.Socket.SendMoreFrameEmpty()
-                          .SendSpanFrame(MemoryMarshal.AsBytes(command.Topic.AsSpan()), true)
-                          .SendSpanFrame(command.Payload.Span);
+        {
+            command.Socket.SendMoreFrame(Encoding.UTF8.GetBytes(command.Topic))
+                          .SendSpanFrame(command.writer.WrittenMemory.Span);
+
+            command.writer.Dispose();
         }
     }
 
