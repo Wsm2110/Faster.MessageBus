@@ -53,7 +53,7 @@ public class ClusterDispatcherTests
         // 1. Set up the dependency injection container and register the message bus services.
         var builder = new ServiceCollection().AddMessageBus(options =>
         {
-            options.Cluster.ClusterName = "testCluster";
+            options.Cluster.ClusterName = "testCluster4";
         });
 
         var provider = builder.BuildServiceProvider();
@@ -62,7 +62,7 @@ public class ClusterDispatcherTests
 
         var builder2 = new ServiceCollection().AddMessageBus(options =>
         {
-            options.Cluster.ClusterName = "testCluster";
+            options.Cluster.ClusterName = "testCluster4";
         });
 
         var provider2 = builder2.BuildServiceProvider();
@@ -78,10 +78,8 @@ public class ClusterDispatcherTests
             ++count;
         }
      
-        Assert.True(count == 2);
+        Assert.Equal(2, count);
     }
-
-
 
     [Fact]
     public async void Cluster_SendAsync_returns_responses()
