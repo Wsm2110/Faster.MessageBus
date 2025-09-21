@@ -220,7 +220,8 @@ public class OrderService
         };
 
         // Send the command to the handler
-        _commandDispatcher.Send(command);
+        // Notice the scope — calls can be routed by specifying one of the scopes: Local, Machine, Cluster, or Network
+        _commandDispatcher.Machine.Send(command);
     }
 }
 ```
