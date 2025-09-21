@@ -11,13 +11,18 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddEventHandlers(this IServiceCollection services)
     {
-        // This scans the assembly for all ICommandHandler types and registers them
-        // based on the interfaces they implement.
+        // Scan application assemblies (loaded assemblies with a physical location) so handlers
+        // from all referenced/transient assemblies are discovered as well as entry assemblies.
+        var assembliesToScan = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => !a.IsDynamic && !string.IsNullOrWhiteSpace(a.Location))
+            .Distinct()
+            .ToArray();
+
         services.Scan(scan => scan
-            .FromEntryAssembly()
+            .FromAssemblies(assembliesToScan)
             .AddClasses(classes => classes.AssignableTo(typeof(IEventHandler<>)))
             .AsImplementedInterfaces()
-            .WithTransientLifetime() // Or Singleton, Transient, etc.
+            .WithTransientLifetime()
         );
 
         return services;
@@ -25,10 +30,16 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddCommandHandlers(this IServiceCollection services)
     {
-        // This scans the assembly for all ICommandHandler types and registers them
-        // based on the interfaces they implement.
+        // Collect all loaded assemblies that have a file location (excludes dynamic assemblies).
+        // This ensures transient / referenced assemblies are included in the scan.
+        var assembliesToScan = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => !a.IsDynamic && !string.IsNullOrWhiteSpace(a.Location))
+            .Distinct()
+            .ToArray();
+
         services.Scan(scan => scan
-            .FromEntryAssembly()
+            .FromAssemblies(assembliesToScan)
+
             .AddClasses(classes => classes.AssignableTo(typeof(ICommandHandler<>)))
             .AsImplementedInterfaces()
             .WithTransientLifetime() // Or Singleton, Transient, etc.
@@ -76,4 +87,3 @@ public static class ServiceCollectionExtensions
         return services;
     }
 }
-

@@ -20,9 +20,13 @@ public record struct MeshInfo()
     [property: Key(4)]
     public ushort PubPort { get; set; }
 
-    [IgnoreMember]   
-    public string Id { get; set; }
+    [property: Key(5)]
+    public string ClusterName { get; set; }
+
+    [property: Key(6)]
+    public ulong MeshId { get; set; }
 
     [IgnoreMember]
     public DateTime LastSeen { get; init; } = DateTime.UtcNow;
+
 }

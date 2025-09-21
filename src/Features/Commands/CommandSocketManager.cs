@@ -3,7 +3,6 @@ using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Scope.Machine;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NetMQ.Sockets;
 using System.Net;
@@ -20,9 +19,9 @@ namespace Faster.MessageBus.Features.Commands;
 internal class CommandSocketManager : ICommandSocketManager, IDisposable
 {
     /// <summary>
-    /// Internal list of sockets keyed by MeshInfo.Id.
+    /// Internal list of sockets keyed by MeshInfo.MeshId.
     /// </summary>
-    private readonly List<(string Id, DealerSocket Socket)> _socketInfoList = new();
+    private readonly List<(ulong Id, DealerSocket Socket)> _socketInfoList = new();
 
     /// <summary>
     /// Scheduler that provides single-threaded execution context for all Socket operations.
@@ -84,7 +83,7 @@ internal class CommandSocketManager : ICommandSocketManager, IDisposable
     /// If fewer sockets are available, returns all of them.
     /// If more are available, excess are skipped.
     /// </summary>
-    public IEnumerable<(string Id, DealerSocket Socket)> Get(int count)
+    public IEnumerable<(ulong Id, DealerSocket Socket)> Get(int count)
     {
         int take = Math.Min(count, _socketInfoList.Count);   // cap at requested count
 
@@ -123,7 +122,7 @@ internal class CommandSocketManager : ICommandSocketManager, IDisposable
             socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
 
             // Track Socket and add it to the poller.
-            _socketInfoList.Add((info.Id, socket));
+            _socketInfoList.Add((info.MeshId, socket));
             poller.Add(socket);
         });
     }
@@ -141,7 +140,7 @@ internal class CommandSocketManager : ICommandSocketManager, IDisposable
             {
                 var socketInfo = _socketInfoList[i];
 
-                if (socketInfo.Id == meshInfo.Id)
+                if (socketInfo.Id == meshInfo.MeshId)
                 {
                     // Finally, remove from dictionary.
                     _socketInfoList.RemoveAt(i);

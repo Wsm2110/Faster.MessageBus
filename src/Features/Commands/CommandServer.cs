@@ -42,11 +42,6 @@ public class CommandServer : IDisposable
     private readonly NetMQQueue<NetMQMessage> _queue;
 
     /// <summary>
-    /// The dedicated background thread that runs the NetMQPoller.
-    /// </summary>
-    private readonly Thread _pollerThread;
-
-    /// <summary>
     /// A flag to prevent redundant disposal.
     /// </summary>
     private bool _disposed;
@@ -190,9 +185,6 @@ public class CommandServer : IDisposable
         // The shutdown sequence must be carefully managed.
         // Stopping the poller will exit the thread's run loop.
         _poller.Stop();
-
-        // Wait for the poller thread to finish execution.
-        _pollerThread.Join();
 
         // Now that the thread is stopped, it's safe to dispose of NetMQ resources.
         _poller.Dispose();

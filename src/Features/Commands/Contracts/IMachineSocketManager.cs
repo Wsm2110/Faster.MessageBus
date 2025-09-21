@@ -17,7 +17,7 @@ namespace Faster.MessageBus.Features.Commands.Scope.Machine
         /// If fewer sockets are available, returns all of them.
         /// If more are available, excess are skipped.
         /// </summary>
-        public IEnumerable<(string Id, DealerSocket Socket)> Get(int count);
+        public IEnumerable<(ulong Id, DealerSocket Socket)> Get(int count);
 
         /// <summary>
         /// Gets the total number of active sockets being managed.

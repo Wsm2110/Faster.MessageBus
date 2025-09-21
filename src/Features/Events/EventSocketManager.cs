@@ -16,7 +16,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     /// <summary>
     /// A thread-safe list of active subscriber sockets, keyed by the unique ID of the mesh node they connect to.
     /// </summary>
-    private readonly List<(string Id, SubscriberSocket Socket)> _socketInfoList = new();
+    private readonly List<(ulong Id, SubscriberSocket Socket)> _socketInfoList = new();
 
     /// <summary>
     /// Used for subscribing to and unsubscribing from mesh membership changes.
@@ -134,6 +134,8 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
             // Subscribe to all topics. An empty string is NetMQ's wildcard for all topics.
             subSocket.Subscribe("");
 
+            _socketInfoList.Add((info.MeshId, subSocket));
+
             // Add the newly created socket to the poller to begin receiving messages.
             poller.Add(subSocket);
         });
@@ -153,7 +155,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
             {
                 var socketInfo = _socketInfoList[i];
 
-                if (socketInfo.Id == meshInfo.Id)
+                if (socketInfo.Id == meshInfo.MeshId)
                 {
                     // Remove the socket from the poller first to stop receiving events.
                     poller.Remove(socketInfo.Socket);

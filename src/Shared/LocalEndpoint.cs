@@ -1,4 +1,5 @@
 ﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Commands.Scope.Cluster;
 using Faster.MessageBus.Features.Commands.Shared;
 using Microsoft.Extensions.Options;
 using NetMQ;
@@ -14,11 +15,12 @@ namespace Faster.MessageBus.Shared;
 /// </summary>
 public class LocalEndpoint
 {
-    public string MeshId;
+    public ulong MeshId = WyHash64.Next();
     public ushort PubPort { get; internal set; }
     public ushort RpcPort { get; internal set; }
     public string Address { get; internal set; } = GetIPv4();
     public string ApplicationName { get; internal set; }
+    public string ClusterName { get; set; }
 
     /// <summary>
     /// Initializes and binds the Local RPC and PUB sockets to available ports.
@@ -28,8 +30,13 @@ public class LocalEndpoint
         // Example values
         string appId = options.Value.ApplicationName;
         string workstation = Environment.MachineName;
-        ApplicationName = options.Value.ApplicationName;
-        MeshId = $"{workstation}-{appId}";
+
+        if (!string.IsNullOrEmpty(options.Value.ApplicationName))
+        {
+            ApplicationName = options.Value.ApplicationName;
+        }
+
+        ClusterName = options.Value.Cluster.ClusterName;
     }
 
     /// <summary>
@@ -79,11 +86,13 @@ public class LocalEndpoint
     {
         return new MeshInfo
         {
+            MeshId = MeshId,
             Address = Address,
             PubPort = PubPort,
             RpcPort = RpcPort,
             ApplicationName = ApplicationName,
-            WorkstationName = Environment.MachineName
+            WorkstationName = Environment.MachineName,
+            ClusterName = ClusterName
         };
     }
 }
@@ -147,15 +156,15 @@ public static class PortFinder
             return true;
         }
         catch (SocketException)
-        {           
+        {
             return false;
         }
         catch (NetMQException)
-        {          
+        {
             return false;
         }
         catch
-        {            
+        {
             // In case of any other error, assume not available
             return false;
         }

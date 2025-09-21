@@ -31,6 +31,7 @@ public sealed class CommandScheduler : ICommandScheduler, IDisposable
     /// This separation allows for specialized, high-performance handling of Socket-bound commands.
     /// </summary>
     private readonly NetMQQueue<ScheduleCommand> _commandQueue = new NetMQQueue<ScheduleCommand>();
+    private bool disposedValue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ClusterCommandScheduler"/> class.
@@ -119,20 +120,41 @@ public sealed class CommandScheduler : ICommandScheduler, IDisposable
     /// <param name="command">The command containing the Socket, topic, correlation ID, and payload to send.</param>
     public void Invoke(ScheduleCommand command) => _commandQueue.Enqueue(command);
 
+    private void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            if (disposing)
+            {
+                // Enqueue the Stop command to the poller's own queue. This is the correct way
+                // to gracefully shut down the poller from an external thread.
+                _poller.Stop();
+                // Wait for the poller's thread to finish its work and exit.
+                _thread.Join();
+
+                // Now that the thread is stopped, it is safe to dispose of the poller and queues.
+                _poller.Dispose();
+                _actionQueue.Dispose();
+                _commandQueue.Dispose();
+                // TODO: dispose managed state (managed objects)
+            }
+
+            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
+            // TODO: set large fields to null
+            disposedValue = true;
+        }
+    }
+
+
+    public void Dispose()
+    {
+        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
     /// <summary>
     /// Stops the poller, joins the worker thread, and cleans up all managed resources.
     /// </summary>
-    public void Dispose()
-    {
-        // Enqueue the Stop command to the poller's own queue. This is the correct way
-        // to gracefully shut down the poller from an external thread.
-        _poller.Stop();
-        // Wait for the poller's thread to finish its work and exit.
-        _thread.Join();
 
-        // Now that the thread is stopped, it is safe to dispose of the poller and queues.
-        _poller.Dispose();
-        _actionQueue.Dispose();
-        _commandQueue.Dispose();
-    }
 }

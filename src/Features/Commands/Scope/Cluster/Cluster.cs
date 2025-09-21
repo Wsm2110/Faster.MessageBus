@@ -45,4 +45,9 @@ public class Cluster
     /// to all nodes known to be running any of the specified applications.
     /// </value>
     public List<Application>? Applications { get; set; } = new List<Application>();
+  
+    /// <summary>
+    /// 
+    /// </summary>
+    public string ClusterName { get; set; }
 }
