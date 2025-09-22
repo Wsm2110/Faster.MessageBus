@@ -95,7 +95,7 @@ public class CommandServer : IDisposable
         var port = PortFinder.FindAvailablePort(options.Value.RPCPort, port => _router.Bind($"tcp://*:{port}"));
         localMeshEndpoint.RpcPort = port;
 
-        eventAggregator.Publish(new MeshJoined(localMeshEndpoint.GetMesh()));
+        eventAggregator.Publish(new MeshJoined(localMeshEndpoint.GetMesh(true)));
 
         Console.WriteLine(_serverName + $"tcp://*:{port}");
 

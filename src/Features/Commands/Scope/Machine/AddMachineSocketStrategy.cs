@@ -7,6 +7,11 @@ namespace Faster.MessageBus.Features.Commands.Scope.Machine
     {
         public bool Validate(MeshInfo info, IOptions<MessageBrokerOptions> options)
         {
+            if (info.Self)
+            {
+                return true;
+            }
+
             if (info.WorkstationName != Environment.MachineName)
             {
                 return false;

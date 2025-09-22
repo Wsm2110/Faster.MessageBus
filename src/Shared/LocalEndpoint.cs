@@ -82,7 +82,7 @@ public class LocalEndpoint
         return "127.0.0.1";
     }
 
-    internal MeshInfo GetMesh()
+    internal MeshInfo GetMesh(bool self = false)
     {
         return new MeshInfo
         {
@@ -92,7 +92,8 @@ public class LocalEndpoint
             RpcPort = RpcPort,
             ApplicationName = ApplicationName,
             WorkstationName = Environment.MachineName,
-            ClusterName = ClusterName
+            ClusterName = ClusterName, 
+            Self = self
         };
     }
 }

@@ -27,6 +27,9 @@ public record struct MeshInfo()
     public ulong MeshId { get; set; }
 
     [IgnoreMember]
+    public bool Self { get; set; }
+
+    [IgnoreMember]
     public DateTime LastSeen { get; init; } = DateTime.UtcNow;
 
 }

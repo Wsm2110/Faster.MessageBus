@@ -5,9 +5,6 @@ using Faster.MessageBus.Shared;
 using System.Threading.Tasks;
 using System;
 using System.Threading;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Faster.MessageBus.Features.Commands.Scope.Cluster;
-
 namespace ClusterTests;
 
 public class ClusterDispatcherTests
@@ -87,7 +84,7 @@ public class ClusterDispatcherTests
         // 1. Set up the dependency injection container and register the message bus services.
         var builder = new ServiceCollection().AddMessageBus(options =>
         {
-            options.Cluster.ClusterName = "testCluster";
+            options.Cluster.ClusterName = "testCluster_";
         });
 
         var provider = builder.BuildServiceProvider();    
@@ -103,6 +100,88 @@ public class ClusterDispatcherTests
 
         provider.Dispose();
         Assert.True(count == 1);
+    }
+
+    [Fact]
+    public async void Cluster_ApplicationName_SendAsync_returns_responses()
+    {
+        // 1. Set up the dependency injection container and register the message bus services.
+        var builder = new ServiceCollection().AddMessageBus(options =>
+        {
+            options.ApplicationName = "TestApp";
+            options.Cluster.Applications.Add(new Faster.MessageBus.Features.Commands.Scope.Cluster.Application("TestApp"));
+        });
+
+        var provider = builder.BuildServiceProvider();
+        var broker = provider.GetRequiredService<IMessageBroker>();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        // send a command via Cluster scope (ICommandScope)
+        int count = 0;
+        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(2), cts.Token))
+        {
+            ++count;
+        }
+
+        provider.Dispose();
+        Assert.True(count == 1);
+    }
+
+    [Fact]
+    public async void Cluster_Different_ApplicationName_SendAsync_returns_no_response()
+    {
+        // 1. Set up the dependency injection container and register the message bus services.
+        var builder = new ServiceCollection().AddMessageBus(options =>
+        {
+            
+            options.Cluster.Applications.Add(new Faster.MessageBus.Features.Commands.Scope.Cluster.Application("TestApp"));
+        });
+
+        var provider = builder.BuildServiceProvider();
+        var broker = provider.GetRequiredService<IMessageBroker>();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        // send a command via Cluster scope (ICommandScope)
+        int count = 0;
+        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(2), cts.Token))
+        {
+            ++count;
+        }
+
+        provider.Dispose();
+        Assert.True(count == 0);
+    }
+
+    [Fact]
+    public async void Cluster_By_ApplicationName_SendAsync_returns_responses()
+    {
+        // 1. Set up the dependency injection container and register the message bus services.
+        var builder = new ServiceCollection().AddMessageBus(options =>
+        {           
+            options.Cluster.Applications.Add(new Faster.MessageBus.Features.Commands.Scope.Cluster.Application("TestApp"));
+        });
+
+       using var provider = builder.BuildServiceProvider();
+        var broker = provider.GetRequiredService<IMessageBroker>();
+
+        var builder2 = new ServiceCollection().AddMessageBus(options =>
+        {
+            options.ApplicationName = "TestApp";
+        });
+
+        using var provider2 = builder2.BuildServiceProvider();
+        var broker2 = provider2.GetRequiredService<IMessageBroker>();
+
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        // send a command via Cluster scope (ICommandScope)
+        int count = 0;
+        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(2), CancellationToken.None))
+        {
+            ++count;
+        }
+
+        Assert.True(count == 2);
     }
 
     public record Ping(string Message) : ICommand<string>;

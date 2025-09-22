@@ -118,6 +118,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
             if (_storage.Add(updated))
             {
                 _eventAggregator.Publish(new MeshJoined(updated));
+                Console.WriteLine($"joined mesh: {updated.ApplicationName} - {updated.WorkstationName}");
             }
             else
             {

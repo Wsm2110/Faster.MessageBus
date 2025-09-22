@@ -8,7 +8,12 @@ namespace Faster.MessageBus.Features.Commands.Scope.Cluster
     {
         public bool Validate(MeshInfo info, IOptions<MessageBrokerOptions> options)
         {
-            if (info.ClusterName == options.Value.Cluster.ClusterName)
+            if (info.Self) 
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.Value.Cluster.ClusterName) && info.ClusterName == options.Value.Cluster.ClusterName)
             {
                 return true;
             }

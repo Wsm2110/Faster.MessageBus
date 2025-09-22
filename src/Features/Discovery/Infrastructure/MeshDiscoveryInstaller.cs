@@ -10,6 +10,5 @@ public class MeshDiscoveryInstaller : IServiceInstaller
     {  
         serviceCollection.AddSingleton<IMeshDiscoveryService, MeshDiscoveryService>();
         serviceCollection.AddSingleton<IMeshRepository, MeshRepository>();
-
     }
 }
