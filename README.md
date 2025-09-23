@@ -14,64 +14,19 @@ It uses a pub/sub model with automatic service discovery, leveraging the power o
 ## ✨ Features
 
 - ⚡ **High Performance:** Minimized allocations and reduced GC pressure using `Span<T>`, `ArrayPool<T>`, and `IBufferWriter<T>`.  
-- 📢 **Pub/Sub Messaging:** Topic-based publish/subscribe for decoupled, one-to-many event distribution.  
+- 📢 **Event Dispatcher (Fire & Forget):** Publish events to topics with no reply, pure **one-to-many** distribution.  
+- 🛠️ **Command Dispatcher (Request/Reply):** Send commands to a **single handler**, always returns a result to confirm execution.  
+- 🌍 **Scoped Commands:** Dispatch commands at different scopes — **Local**, **Machine**, **Cluster**, or **Network**.  
 - 🔍 **Automatic Service Discovery:** Nodes auto-discover and form a mesh, simplifying configuration.  
+- ❤️ **Heartbeat Monitoring:** Built-in heartbeat messages to track node health, detect failures, and remove dead peers automatically.  
 - 🔒 **Thread-Safe:** Dedicated scheduler thread for all network ops; no locks needed in application code.  
 - 📦 **Efficient Serialization:** MessagePack + LZ4 compression for fast, compact serialization.  
-
+ 
 ---
 
-## 🚀 Getting Started
-
-Since this project is a work in progress, it is not yet available on NuGet.  
-To use it, clone the repository and build it locally.
-
-```bash
-# Clone the repository
-git clone https://github.com/your-username/Faster.MessageBus.git
-
-# Navigate to the project directory
-cd Faster.MessageBus
-
-# Build the project
-dotnet build -c Release
-```
 ## 📚 Core Concepts: Events and Commands
 
 The message bus is designed to handle two primary types of messages: **Events** and **Commands**.
-
----
-
-### 📢 Events (Pub/Sub)
-
-An **event** notifies other parts of the system that something has happened.  
-The publisher doesn’t know or care who is listening.  
-This follows a **one-to-many** communication pattern.
-
-- **Use Case:** Notify services when a new user registers, an order is placed, or a process completes.  
-- **Implementation:** Events are published to a *topic*. Any service subscribed to that topic receives a copy.  
-- **Focus:** The current implementation is heavily optimized for events.  
-
-**Example:**  
-The `Ordering` service publishes an `OrderPlaced` event.  
-
-- `Inventory`, `Billing`, and `Shipping` services subscribe and act on it.
-
----
-
-### 🛠️ Commands (Request/Reply or Fire-and-Forget)
-
-A **command** tells another part of the system to do something.  
-Unlike an event, a command is directed at a **specific handler** and often implies an **expectation of action**.  
-This follows a **one-to-one** communication pattern.
-
-- **Use Case:** Instructing a service to create a user, submit an order, or process a payment.  
-- **Implementation:** While the same pub/sub transport can be used, a command is logically sent to a **single owner/handler**.  
-- **Focus:** The architecture is designed to support commands in the future.  
-
-**Example:**  
-A `SubmitOrder` command is sent from a web client to the `Ordering` service.  
-The `Ordering` service is the sole owner of this command and processes it.
 
 ## 🛠️ How to Use
 
@@ -82,162 +37,75 @@ The following example demonstrates how to configure the message bus, define an e
 Register the message bus components with your dependency injection container:
 
 ```csharp
+
 // In your Program.cs or startup configuration
 services.AddMessageBus(options =>
 {
-    options.PublishPort = 10000; // Starting port for the publisher
-    // ... other options
+    options.PublishPort = 10000; // Starting port for the publisher (default communication port)
+    // ... configure other options as needed
 });
-```
-### 2️⃣ Define an Event  
 
-Events are simple objects that implement the `IEvent` interface.
+var provider = builder.BuildServiceProvider();
 
-```csharp
-using Faster.MessageBus.Contracts;
+// Resolve the message bus from DI
+var messageBus = provider.GetRequiredService<IMessageBroker>();
 
-public class UserCreatedEvent : IEvent
+// --- Sending a Command (Request/Reply) ---
+// Note: The command can be sent to different scopes depending on configuration:
+// Local (same process), Machine (same host), Cluster (service cluster), or Network (any reachable node) 
+await messageBus.CommandDispatcher.Local.SendAsync(
+    new SubmitOrderCommand(Guid.NewGuid(), "Alice", 3, "Apples"), // Command with payload
+    TimeSpan.FromSeconds(5),                                      // Timeout for reply
+    CancellationToken.None                                        // Cancellation support
+);
+
+// --- Publishing an Event (Fire-and-Forget) ---
+await messageBus.EventDispatcher.Publish(
+    new UserCreatedEvent(Guid.NewGuid(), "I AM GROOT Local"),      // Event object
+    TimeSpan.FromSeconds(5),                                      // Timeout for acknowledgement
+    CancellationToken.None
+);
+
+// --- Domain Records ---
+public record UserCreatedEvent(Guid UserId, string UserName) : IEvent;
+
+// Commands can return nothing (void) or a typed result
+public record SubmitOrderCommand(Guid OrderId, string CustomerName, int Quantity, string Product) : ICommand;
+public record PingCommand(Guid CorrelationId, string Message) : ICommand<string>;
+
+// --- Event Handler Example ---
+public class UserCreatedEventHandler(ILogger<UserCreatedEventHandler> logger) 
+    : IEventHandler<UserCreatedEvent>
 {
-    public Guid UserId { get; set; }
-    public string UserName { get; set; }
-}
-```
-### 3️⃣ Create an Event Handler
-
-Create a class that implements `IEventHandler<TEvent>` to process the event.  
-The DI container automatically discovers and registers this handler.
-
-```csharp
-using Faster.MessageBus.Contracts;
-
-public class UserCreatedEventHandler : IEventHandler<UserCreatedEvent>
-{
-    private readonly ILogger<UserCreatedEventHandler> _logger;
-
-    public UserCreatedEventHandler(ILogger<UserCreatedEventHandler> logger)
-    {
-        _logger = logger;
-    }
-
     public void Handle(UserCreatedEvent @event)
     {
-        _logger.LogInformation($"New user created! ID: {@event.UserId}, Name: {@event.UserName}");
-        // ... add business logic here ...
+        logger.LogInformation($"New user created! ID: {@event.UserId}, Name: {@event.UserName}");
     }
 }
-```
-### 4️⃣ Publish the Event
 
-Inject `IEventDispatcher` into any service and use it to publish events.
-
-```csharp
-public class UserService
+// --- Command Handler Example (void return) ---
+public class SubmitOrderCommandHandler(ILogger<SubmitOrderCommandHandler> logger) 
+    : ICommandHandler<SubmitOrderCommand>
 {
-    private readonly IEventDispatcher _eventDispatcher;
-
-    public UserService(IEventDispatcher eventDispatcher)
+    public async Task Handle(SubmitOrderCommand command)
     {
-        _eventDispatcher = eventDispatcher;
-    }
-
-    public void CreateUser(string name)
-    {
-        var newUserEvent = new UserCreatedEvent
-        {
-            UserId = Guid.NewGuid(),
-            UserName = name
-        };
-
-        // Dispatch the event to the message bus
-        _eventDispatcher.Publish(newUserEvent);
+        logger.LogInformation($"Processing order {command.OrderId} for {command.CustomerName}: {command.Quantity} x {command.Product}");
+        return Task.CompletedTask;        
     }
 }
-```
-## How to Use (Commands)
 
-Here is how you would define, handle, and dispatch a command.
-
----
-
-### 1️⃣ Define a Command
-
-Commands are objects that implement the `ICommand` interface.
-
-```csharp
-using Faster.MessageBus.Contracts;
-
-public class SubmitOrderCommand : ICommand
+// --- Command Handler Example (typed return) ---
+public class PongCommandHandler(ILogger<PongCommandHandler> logger) 
+    : ICommandHandler<PingCommand, string>
 {
-    public Guid OrderId { get; set; }
-    public string CustomerName { get; set; }
-}
-```
-### 2️⃣ Create a Command Handler
-
-Create a class that implements `ICommandHandler<TCommand>`.  
-Each command must have exactly **one handler**.
-
-```csharp
-using Faster.MessageBus.Contracts;
-
-public class SubmitOrderCommandHandler : ICommandHandler<SubmitOrderCommand>
-{
-    private readonly ILogger<SubmitOrderCommandHandler> _logger;
-
-    public SubmitOrderCommandHandler(ILogger<SubmitOrderCommandHandler> logger)
+    public async Task<string> Handle(PingCommand command)
     {
-        _logger = logger;
-    }
-
-    public void Handle(SubmitOrderCommand command)
-    {
-        _logger.LogInformation($"Processing order {command.OrderId}: {command.Quantity} x {command.Product}");
-        // ... add business logic to process the order ...
+        logger.LogInformation($"Ping received [{command.CorrelationId}] -> {command.Message}");
+        return "Pong";  // Responds with a string
     }
 }
+
 ```
-### 3️⃣ Dispatch the Command
-
-Inject `ICommandDispatcher` into any service to send commands.
-
-```csharp
-public class OrderService
-{
-    private readonly ICommandDispatcher _commandDispatcher;
-
-    public OrderService(ICommandDispatcher commandDispatcher)
-    {
-        _commandDispatcher = commandDispatcher;
-    }
-
-    public void SubmitOrder(string product, int quantity)
-    {
-        var command = new SubmitOrderCommand
-        {
-            OrderId = Guid.NewGuid(),
-            Product = product,
-            Quantity = quantity
-        };
-
-        // Send the command to the handler
-        // Notice the scope — calls can be routed by specifying one of the scopes: Local, Machine, Cluster, or Network
-        _commandDispatcher.Machine.Send(command);
-    }
-}
-```
-
-## 🛤️ Roadmap
-
-
-This project is evolving. Future plans include:
-
-[X] Complete the Command (Request/Reply) pattern implementation.
-[ ] Enhanced error handling and resilience (e.g., dead-letter queues).
-[ ] Comprehensive performance benchmarking.
-[ ] More detailed documentation and examples.
-[ ] Official release on NuGet.
-
----
 
 ## 🤝 Contributing
 
