@@ -12,6 +12,6 @@
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
 	</ItemGroup>
 	<ItemGroup>
-		<ProjectReference Include="..\..\src\Faster.MessageBus.csproj" />
+	  <ProjectReference Include="..\src\Faster.MessageBus.csproj" />
 	</ItemGroup>
 </Project>

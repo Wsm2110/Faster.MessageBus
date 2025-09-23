@@ -1,12 +1,8 @@
 ﻿using Faster.MessageBus;
-using Faster.MessageBus.Contracts;
-using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Scope.Cluster;
 using Faster.MessageBus.Features.Commands.Scope.Machine;
-using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using System;
 
 /// <summary>
 /// Dispatches commands to different scopes (Local, Machine, Cluster, Network).
@@ -14,6 +10,7 @@ using System;
 /// </summary>
 public class CommandDispatcher : ICommandDispatcher, IDisposable
 {
+    private readonly IServiceScope _localScope;
     private readonly IServiceScope _machineScope;
     private readonly IServiceScope _clusterScope;
     private readonly IServiceScope _networkScope;
@@ -24,7 +21,7 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
     /// Gets the command scope for high-performance, in-process communication.
     /// This does not require its own DI scope or scheduler.
     /// </summary>
-    public ILocalCommandScope Local { get; }
+    public ICommandScope Local { get; }
 
     /// <summary>
     /// Gets the command scope for inter-process communication on the same machine.
@@ -55,7 +52,7 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
     public CommandDispatcher(IServiceProvider provider)
     {
         // Resolve the local command scope for in-process communication
-        Local = provider.GetRequiredService<ILocalCommandScope>();
+        (_localScope, Local) = CreateLocalScope(provider);
 
         // Create the machine scope for inter-process communication on the same machine
         (_machineScope, Machine) = CreateMachineScope(provider);
@@ -67,8 +64,21 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
         (_networkScope, Network) = CreateNetworkScope(provider);
 
         // initialize startup classes
-        var startup = provider.GetRequiredService<IStartup>();
+        var startup = provider.GetRequiredService<Ilifetime>();
         startup.Initialize();
+    }
+
+    /// <summary>
+    /// Creates the machine scope and wires its scheduler and socket strategy.
+    /// </summary>
+    private static (IServiceScope scope, ICommandScope commandScope) CreateLocalScope(IServiceProvider provider)
+    {
+        var scope = provider.CreateScope();
+        var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
+        var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
+        processor.AddSocketStrategy(new AddLocalSocketStrategy());
+
+        return (scope, commandScope);
     }
 
     /// <summary>
@@ -78,8 +88,8 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
     {
         var scope = provider.CreateScope();
         var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
-        var socketManager = scope.ServiceProvider.GetRequiredService<ICommandSocketManager>();
-        socketManager.AddSocketStrategy(new AddMachineSocketStrategy());
+        var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
+        processor.AddSocketStrategy(new AddMachineSocketStrategy());
 
         return (scope, commandScope);
     }
@@ -92,8 +102,8 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
         var scope = provider.CreateScope();
         var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
 
-        var socketManager = scope.ServiceProvider.GetRequiredService<ICommandSocketManager>();
-        socketManager.AddSocketStrategy(new AddClusterSocketStrategy());
+        var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
+        processor.AddSocketStrategy(new AddLocalSocketStrategy());
 
         return (scope, commandScope);
     }
@@ -105,7 +115,7 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
     {
         var scope = provider.CreateScope();
         var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
-        var socketManager = scope.ServiceProvider.GetRequiredService<ICommandSocketManager>();
+        var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
         // no need for a socket strategy, doesnt have any requirements yet
         return (scope, commandScope);
     }
@@ -130,6 +140,7 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
 
         if (disposing)
         {
+            _localScope.Dispose();
             _machineScope.Dispose();
             _clusterScope.Dispose();
             _networkScope.Dispose();

@@ -45,7 +45,7 @@
         /// Gets the command scope for high-performance, in-process communication.
         /// </summary>
         /// <value>The <see cref="ILocalCommandScope"/> implementation.</value>
-        ILocalCommandScope Local { get; }
+        ICommandScope Local { get; }
 
         /// <summary>
         /// Gets the command scope for inter-process communication on the same machine.

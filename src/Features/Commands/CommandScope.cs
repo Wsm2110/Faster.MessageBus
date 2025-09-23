@@ -14,9 +14,8 @@ namespace Faster.MessageBus.Features.Commands;
 /// This class orchestrates a "scatter-gather" pattern, broadcasting a single command to multiple
 /// sockets and asynchronously collecting their individual responses.
 /// </summary>
-public class CommandScope(
-    ICommandSocketManager socketManager,
-    ICommandScheduler scheduler,
+public class CommandScope(   
+    ICommandProcessor commandProcessor,
     ICommandSerializer serializer,
     ICommandReplyHandler commandReplyHandler) : ICommandScope
 {
@@ -97,8 +96,8 @@ public class CommandScope(
     /// </summary>
     private ScatterContext Scatter<T>(T command, TimeSpan timeout, CancellationToken ct) where T : ICommand
     {
-        var count = socketManager.Count; // Assuming Length property is available.
-        var sockets = socketManager.Get(count);
+        var count = commandProcessor.Count; // Assuming Length property is available.
+        var sockets = commandProcessor.Get(count);
 
         if (count == 0)
         {
@@ -124,7 +123,7 @@ public class CommandScope(
             requests[requestIndex++] = pending;
 
             // 4. USE a struct for the command payload. This is a stack allocation.
-            scheduler.Invoke(new ScheduleCommand
+            commandProcessor.ScheduleCommand(new ScheduleCommand
             {
                 Socket = socketinfo.Socket,
                 CorrelationId = pending.CorrelationId,

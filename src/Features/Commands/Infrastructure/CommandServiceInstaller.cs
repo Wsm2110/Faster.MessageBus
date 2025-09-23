@@ -20,16 +20,12 @@ internal class CommandServiceInstaller : IServiceInstaller
         serviceCollection.AddSingleton<ICommandMessageHandler, CommandMessageHandler>();
         serviceCollection.AddSingleton<ICommandAssemblyScanner, CommandHandlerAssemblyScanner>();
 
-        // register scopes
-        serviceCollection.AddSingleton<ILocalCommandScope, LocalCommandScope>();
-        serviceCollection.AddSingleton<ICommandScope, CommandScope>();       
+    
         serviceCollection.AddSingleton<ICommandSerializer, CommandSerializer>();
         serviceCollection.AddSingleton<ICommandReplyHandler, CommandReplyHandler>();
 
-        serviceCollection.AddSingleton<ICommandScheduler, CommandScheduler>();    
-        serviceCollection.AddSingleton<ICommandSocketManager, CommandSocketManager>();
-        serviceCollection.AddSingleton<ILocalSocketManager, LocalSocketManager>();
-
+        serviceCollection.AddScoped<ICommandScope, CommandScope>();
+        serviceCollection.AddScoped<ICommandProcessor, CommandProcessor>();    
 
     }
 }

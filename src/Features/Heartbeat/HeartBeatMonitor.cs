@@ -36,7 +36,7 @@ namespace Faster.MessageBus.Features.Heartbeat
             _discoveryService = discoveryService;
 
             // Create a timer that will trigger the cleanup method at regular intervals.
-            _timer = new NetMQTimer(TimeSpan.FromMilliseconds(100));
+            _timer = new NetMQTimer(TimeSpan.FromMilliseconds(1000));
             _timer.Elapsed += _discoveryService.RemoveInactiveApplications;
 
             // The poller is a dedicated background thread that manages timers and sockets.
@@ -57,7 +57,7 @@ namespace Faster.MessageBus.Features.Heartbeat
         /// </summary>
         public void Stop()
         {
-            _poller.StopAsync();
+            _poller.Stop();
         }
 
         /// <summary>
@@ -72,9 +72,12 @@ namespace Faster.MessageBus.Features.Heartbeat
                 {
                     // Unsubscribe the event handler to prevent memory leaks.
                     _timer.Elapsed -= _discoveryService.RemoveInactiveApplications;
-
+                   
                     // Stop and dispose the poller thread and its associated resources.
-                    _poller.StopAsync();
+                    if (_poller.IsRunning)
+                    {
+                        _poller.Stop();
+                    }
                     _poller.Dispose();
                 }
 

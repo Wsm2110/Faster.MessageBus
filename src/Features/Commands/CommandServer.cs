@@ -5,7 +5,6 @@ using Microsoft.Extensions.Options;
 using NetMQ;
 using NetMQ.Sockets;
 using System.Buffers;
-using System.Runtime.InteropServices;
 
 namespace Faster.MessageBus.Features.Commands;
 
@@ -39,7 +38,7 @@ public class CommandServer : IDisposable
     /// <summary>
     /// A thread-safe queue used to marshal response messages from the business logic thread(s) back to the poller thread for safe sending.
     /// </summary>
-    private readonly NetMQQueue<NetMQMessage> _queue;
+    private readonly NetMQQueue<NetMQMessage> _receiveCommandQueue;
 
     /// <summary>
     /// A flag to prevent redundant disposal.
@@ -88,8 +87,8 @@ public class CommandServer : IDisposable
         _router.Options.TcpKeepalive = true;
         _router.Options.TcpKeepaliveIdle = TimeSpan.FromSeconds(30);
         _router.Options.TcpKeepaliveInterval = TimeSpan.FromSeconds(10);
-        _router.Options.ReceiveBuffer = 1024 * 1024;        // OS recv buffer size
-        _router.Options.SendBuffer = 1024 * 1024;           // OS send buffer size
+        _router.Options.ReceiveBuffer = 1024 * 64;        // OS recv buffer size
+        _router.Options.SendBuffer = 1024 * 64;           // OS send buffer size
 
         // find random port in range of 10000 -12000
         var port = PortFinder.FindAvailablePort(options.Value.RPCPort, port => _router.Bind($"tcp://*:{port}"));
@@ -100,11 +99,11 @@ public class CommandServer : IDisposable
         Console.WriteLine(_serverName + $"tcp://*:{port}");
 
         // Initialize the response queue and its callback.
-        _queue = new NetMQQueue<NetMQMessage>();
-        _queue.ReceiveReady += SendResponseToDealer;
+        _receiveCommandQueue = new NetMQQueue<NetMQMessage>();
+        _receiveCommandQueue.ReceiveReady += SendResponseToDealer;
 
         // The poller will monitor both the router for new requests and the queue for new responses to send.
-        _poller = new NetMQPoller { _router, _queue };
+        _poller = new NetMQPoller { _router, _receiveCommandQueue };
         _poller.RunAsync();
     }
 
@@ -115,7 +114,7 @@ public class CommandServer : IDisposable
     private void SendResponseToDealer(object? sender, NetMQQueueEventArgs<NetMQMessage> e)
     {
         // Dequeue and send all available response messages.
-        while (_queue.TryDequeue(out var msg, TimeSpan.Zero))
+        while (_receiveCommandQueue.TryDequeue(out var msg, TimeSpan.Zero))
         {
             _router.SendMultipartMessage(msg);
         }
@@ -171,7 +170,7 @@ public class CommandServer : IDisposable
         msg.Append(result);
 
         // Enqueue the response to be sent safely on the poller thread.
-        _queue.Enqueue(msg);
+        _receiveCommandQueue.Enqueue(msg);
     }
 
     /// <summary>
@@ -179,7 +178,11 @@ public class CommandServer : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
 
         // The shutdown sequence must be carefully managed.
@@ -188,7 +191,7 @@ public class CommandServer : IDisposable
 
         // Now that the thread is stopped, it's safe to dispose of NetMQ resources.
         _poller.Dispose();
-        _queue.Dispose();
+        _receiveCommandQueue.Dispose();
         _router.Dispose();
     }
 }

@@ -2,7 +2,7 @@
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.Options;
 
-namespace Faster.MessageBus.Features.Commands.Scope.Cluster
+namespace Faster.MessageBus.Features.Commands.Scope.Local
 {
     internal class AddLocalSocketStrategy : ISocketStrategy
     {
@@ -11,7 +11,7 @@ namespace Faster.MessageBus.Features.Commands.Scope.Cluster
             if (info.Self) 
             {
                 return true;
-            }   
+            }
 
             return false;
         }

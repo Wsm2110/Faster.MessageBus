@@ -6,6 +6,7 @@ using Faster.MessageBus.Features.Events;
 using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
+using System;
 
 /// <summary>
 /// The main, unified entry point for the entire message bus system.
@@ -39,8 +40,10 @@ using Microsoft.Extensions.DependencyInjection;
 /// </code>
 /// </example>
 /// </remarks>
-public class MessageBroker : IServiceInstaller, IMessageBroker
+public class MessageBroker : IServiceInstaller, IMessageBroker, IDisposable
 {
+    private bool disposedValue;
+
     /// <summary>
     /// Gets the dispatcher for publishing events using the publish-subscribe pattern.
     /// </summary>
@@ -52,6 +55,8 @@ public class MessageBroker : IServiceInstaller, IMessageBroker
     /// </summary>CommandDispatcher
     /// <value>The <see cref="ICommandDispatcher"/> implementation.</value>
     public ICommandDispatcher CommandDispatcher { get; }
+
+    private Ilifetime _lifetime;
 
     /// <summary>
     /// 
@@ -67,14 +72,15 @@ public class MessageBroker : IServiceInstaller, IMessageBroker
     /// <param name="eventDispatcher">The concrete event dispatcher implementation.</param>
     /// <param name="commandDispatcher">The concrete command dispatcher implementation.</param>
     public MessageBroker(IEventDispatcher eventDispatcher,
-        ICommandDispatcher commandDispatcher, IServiceProvider serviceProvider)
+        ICommandDispatcher commandDispatcher, 
+        IServiceProvider serviceProvider)
     {
         EventDispatcher = eventDispatcher;
         CommandDispatcher = commandDispatcher;
 
         // initialize startup classes
-        var startup = serviceProvider.GetRequiredService<IStartup>();
-        startup.Initialize();
+        _lifetime = serviceProvider.GetRequiredService<Ilifetime>();
+        _lifetime.Initialize();
     }
 
     /// <inheritdoc/>
@@ -87,7 +93,37 @@ public class MessageBroker : IServiceInstaller, IMessageBroker
         serviceCollection.AddSingleton<IEventDispatcher, EventDispatcher>();
         serviceCollection.AddSingleton<IEventAggregator, EventAggregator>();
 
-        serviceCollection.AddSingleton<IStartup, Startup>();
+        serviceCollection.AddSingleton<Ilifetime, Lifetime>();
 
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            if (disposing)
+            {
+                _lifetime.Destruct();
+                // TODO: dispose managed state (managed objects)
+            }
+
+            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
+            // TODO: set large fields to null
+            disposedValue = true;
+        }
+    }
+
+    // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
+    // ~MessageBroker()
+    // {
+    //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+    //     Dispose(disposing: false);
+    // }
+
+    public void Dispose()
+    {
+        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }

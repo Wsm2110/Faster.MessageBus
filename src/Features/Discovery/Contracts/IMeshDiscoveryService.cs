@@ -1,10 +1,5 @@
 ﻿using Faster.MessageBus.Shared;
 using NetMQ;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Faster.MessageBus.Features.Discovery.Contracts;
 
@@ -12,7 +7,7 @@ namespace Faster.MessageBus.Features.Discovery.Contracts;
 /// Represents a discovery service that listens for and broadcasts node information (MeshInfo)
 /// over the network, typically using a mechanism like the NetMQ beacon for peer discovery.
 /// </summary>
-public interface IMeshDiscoveryService
+public interface IMeshDiscoveryService : IDisposable
 {
     /// <summary>
     /// Starts the discovery service. This begins broadcasting the local node's MeshInfo

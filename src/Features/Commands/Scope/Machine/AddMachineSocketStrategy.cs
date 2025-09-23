@@ -6,11 +6,7 @@ namespace Faster.MessageBus.Features.Commands.Scope.Machine
     internal class AddMachineSocketStrategy : ISocketStrategy
     {
         public bool Validate(MeshInfo info, IOptions<MessageBrokerOptions> options)
-        {
-            if (info.Self)
-            {
-                return true;
-            }
+        {          
 
             if (info.WorkstationName != Environment.MachineName)
             {

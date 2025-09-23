@@ -78,7 +78,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     public void Start(MeshInfo meshInfo)
     {       
         // Publish this node's identity for others to discover.
-        _beacon.Publish(MessagePackSerializer.Serialize(meshInfo));
+        _beacon.Publish(MessagePackSerializer.Serialize(meshInfo), TimeSpan.FromMilliseconds(250));
         _poller.RunAsync();
     }
 
@@ -90,8 +90,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     /// </remarks>
     public void Stop()
     {
-        _beacon.Unsubscribe();
-        _beacon.Dispose();
+        _beacon.Unsubscribe();      
         // Note: The poller is intentionally not stopped here; Dispose() handles the full shutdown.
     }
 
@@ -157,10 +156,10 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
         {
             if (disposing)
             {
+                _beacon.ReceiveReady -= OnSignalReceived!;  
                 // Stop the poller and beacon to clean up resources.
                 _poller.Stop();
-                _poller.Dispose();
-                Stop();
+                _poller.Dispose();          
             }
             _disposedValue = true;
         }
