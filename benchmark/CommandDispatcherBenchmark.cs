@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Faster.MessageBus.Contracts;
-using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VSDiagnostics;
@@ -13,8 +12,7 @@ using Microsoft.VSDiagnostics;
 public class CommandDispatcherBenchmark
 {
     private IServiceProvider _provider;
-    private IMessageBroker _broker;
-    private ILocalCommandScope _localScope;
+    private IMessageBroker _broker;   
     private ICommand _command;
 
     [GlobalSetup]
@@ -36,7 +34,7 @@ public class CommandDispatcherBenchmark
     {
         for (int i = 0; i < 10000; i++)
         {
-            await _broker.CommandDispatcher.Machine.SendAsync(_command, TimeSpan.FromSeconds(1), CancellationToken.None);
+            await _broker.CommandDispatcher.Machine.SendAsync(_command, TimeSpan.FromSeconds(1));
         }
     }
 }
