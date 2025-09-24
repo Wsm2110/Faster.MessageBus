@@ -3,8 +3,7 @@
 ![Work in Progress](https://img.shields.io/badge/status-work%20in%20progress-yellow)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-A high-performance, low-allocation messaging library for .NET, built for speed and efficiency in distributed systems.  
-It uses a pub/sub model with automatic service discovery, leveraging the power of NetMQ for networking and MessagePack for serialization.
+A high-performance, decentralized, peer-to-peer (P2P) messaging library for .NET, built on `NetMQ`. It enables services to form a self-organizing and self-healing communication mesh without a central broker.
 
 > **Warning:** This project is currently under active development and should be considered experimental.  
 > The API is subject to change, and it is not yet recommended for production use.
@@ -26,7 +25,10 @@ It uses a pub/sub model with automatic service discovery, leveraging the power o
 
 ## 📚 Core Concepts: Events and Commands
 
-The message bus is designed to handle two primary types of messages: **Events** and **Commands**.
+`faster.messagebus` provides a brokerless messaging solution by creating a **decentralized mesh network**. Each node (or application instance) acts as both a client and a server, connecting to a subset of other known peers. Messages are propagated intelligently through the mesh to reach their subscribers, ensuring high availability and eliminating single points of failure.
+
+The architecture leverages the power of `NetMQ` (a pure C# port of ZeroMQ) for its extremely efficient, low-latency socket communication. Peer discovery can be handled through various strategies, with a default gossip-based protocol for zero-configuration deployments.
+
 
 ## 🛠️ How to Use
 
