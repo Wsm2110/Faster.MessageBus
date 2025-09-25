@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using Faster.MessageBus.Shared;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
 
 namespace Faster.MessageBus.Features.Commands.Shared;
@@ -13,11 +14,12 @@ namespace Faster.MessageBus.Features.Commands.Shared;
 public sealed class PendingReply<T> : IValueTaskSource<T>
 {
     private ManualResetValueTaskSourceCore<T> _core;
+    private static long _correlationIdCounter = 0;
 
     /// <summary>
     /// A unique identifier used to correlate a request with its corresponding reply message.
     /// </summary>
-    public ulong CorrelationId;
+    public long CorrelationId { get; private set; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PendingReply{T}"/> class.
@@ -31,7 +33,7 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     {
         // WyHash64 is not a standard part of .NET, assuming it's a custom or third-party implementation
         // for generating a fast, non-cryptographic hash.
-        CorrelationId = WyHash64.Next();
+        CorrelationId = Interlocked.Increment(ref _correlationIdCounter);
         _core = default;
         _core.RunContinuationsAsynchronously = runContinuationsAsync;
     }
@@ -71,7 +73,10 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     /// <param name="token">The unique token identifying the operation version.</param>
     /// <returns>The result of the completed operation.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public T GetResult(short token) =>  _core.GetResult(token);
+    public T GetResult(short token)
+    {
+        return _core.GetResult(token);
+    }
 
     /// <summary>
     /// Gets the status of the operation.
@@ -92,6 +97,8 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
             return _core.GetStatus(_core.Version) != ValueTaskSourceStatus.Pending;
         }
     }
+
+    public MeshInfo Target { get; internal set; }
 
     /// <summary>
     /// Schedules the continuation action that will be invoked when the operation completes.

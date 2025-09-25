@@ -162,7 +162,11 @@ public sealed class ElasticPool : IDisposable
         if (disposing)
         {
             _trimmer.Dispose();
-            _items.Clear();
+       
+            while (_items.TryTake(out var _))
+            {
+                // discard
+            }
         }
     }
 
@@ -217,7 +221,7 @@ public sealed class ElasticPool : IDisposable
         {
             if (allocatedCount > MaxSize)
             {
-                Volatile.Write(ref _lastBurstTicks.Value, Environment.TickCount64);
+                Volatile.Write(ref _lastBurstTicks.Value, Environment.TickCount);
             }
             return new PendingReply<byte[]>();
         }
@@ -276,7 +280,7 @@ public sealed class ElasticPool : IDisposable
 
         // Check if the burst TTL has expired since the last burst allocation.
         long lastBurst = Volatile.Read(ref _lastBurstTicks.Value);
-        if (lastBurst == 0 || unchecked(Environment.TickCount64 - lastBurst) < BurstExcessTtl.TotalMilliseconds)
+        if (lastBurst == 0 || unchecked(Environment.TickCount - lastBurst) < BurstExcessTtl.TotalMilliseconds)
         {
             return;
         }

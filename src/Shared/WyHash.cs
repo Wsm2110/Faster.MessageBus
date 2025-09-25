@@ -4,7 +4,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-internal static class WyHashHelper
+internal static class WyHash
 {
     private static readonly ulong[] Secret = {
         0xa0761d6478bd642fUL, 0xe7037ed1a0b428dbUL,
@@ -12,7 +12,7 @@ internal static class WyHashHelper
     };
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void Mum(ref ulong a, ref ulong b)
+    public static void Mum(ref ulong a, ref ulong b)
     {
         ulong ha = a >> 32, hb = b >> 32;
         ulong la = (uint)a, lb = (uint)b;
@@ -29,7 +29,7 @@ internal static class WyHashHelper
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ulong Mix(ulong a, ulong b)
+    public static ulong Mix(ulong a, ulong b)
     {
         Mum(ref a, ref b);
         return a ^ b;
@@ -83,6 +83,51 @@ internal static class WyHashHelper
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ulong Hash(ulong x) => Mix(x, 0x9E3779B97F4A7C15UL);
+}
+
+/// <summary>
+/// A pseudo-random number generator based on the wyrand algorithm.
+/// This class maintains an internal state (seed) to generate a sequence of numbers.
+/// </summary>
+public class WyRandom
+{
+    // The internal state of the generator.
+    private ulong _seed;
+
+    /// <summary>
+    /// Initializes a new instance of the WyRandom class using a specified seed.
+    /// </summary>
+    /// <param name="seed">The initial state for the random number generator.</param>
+    public WyRandom(ulong seed)
+    {
+        _seed = seed;
+    }
+
+    /// <summary>
+    /// Returns a non-negative random 64-bit unsigned integer.
+    /// This is the core generator function.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ulong NextInt64()
+    {
+        // The wyrand algorithm: increment the seed and mix it with a constant.
+        // We use the constants from the private 'Secret' array in WyHash.
+        // 0xa0761d6478bd642fUL is Secret[0]
+        // 0xe7037ed1a0b428dbUL is Secret[1]
+        _seed += 0xa0761d6478bd642fUL;
+        return WyHash.Mix(_seed, 0xe7037ed1a0b428dbUL);
+    }
+
+    /// <summary>
+    /// Returns a non-negative random 32-bit signed integer.
+    /// </summary>
+    /// <returns>A 32-bit signed integer that is greater than or equal to 0.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int Next()
+    {
+        // We take the upper 31 bits of the 64-bit result to get a positive integer.
+        return (int)(NextInt64() >> 33);
+    }
 }
 
 

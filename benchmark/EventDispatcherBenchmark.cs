@@ -35,7 +35,7 @@ namespace BenchmarkSuite1
         {
             for (int i = 0; i < 1000000; i++)
             {
-                _messageBroker.EventDispatcher.Publish(_testEvent); // If EventDispatcher has SendAsync, use that instead
+                _messageBroker.EventDispatcher.Publish(_testEvent); // If EventDispatcher has StreamAsync, use that instead
             }
         }
 

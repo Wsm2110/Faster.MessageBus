@@ -11,17 +11,17 @@ public class MessageBrokerOptions
     /// <summary>
     /// Gets or sets the name of the application. This can be used for identification, logging, or prefixing topics.
     /// </summary>
-    public string ApplicationName { get; set; } = WyHash64.Next().ToString("X");
+    public string ApplicationName { get; set; }
 
     /// <summary>
     /// Gets or sets the network port used for RPC (Request-Reply) communication.
     /// </summary>
-    public ushort RPCPort { get; set; }
+    public ushort RPCPort { get; set; } = 20000;
 
     /// <summary>
     /// Gets or sets the network port used for Publish-Subscribe communication.
     /// </summary>
-    public ushort PublishPort { get; set; }
+    public ushort PublishPort { get; set; } = 10000;
 
     /// <summary>
     /// Gets or sets the cluster configuration, defining how nodes discover and connect to each other.

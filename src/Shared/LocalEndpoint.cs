@@ -15,11 +15,11 @@ namespace Faster.MessageBus.Shared;
 /// </summary>
 public class LocalEndpoint
 {
-    public ulong MeshId = WyHash64.Next();
+    public ulong MeshId = new WyRandom((ulong)Environment.TickCount).NextInt64();
     public ushort PubPort { get; internal set; }
     public ushort RpcPort { get; internal set; }
     public string Address { get; internal set; } = GetIPv4();
-    public string ApplicationName { get; internal set; }
+    public string ApplicationName { get; internal set; } = "Unknown";
     public string ClusterName { get; set; }
 
     /// <summary>
@@ -104,81 +104,42 @@ public class LocalEndpoint
 /// </summary>
 public static class PortFinder
 {
-    // Tracks ports that have already been returned
-    private static readonly HashSet<int> _usedPorts = new();
-    private static readonly object _lock = new();
+    // A name for the system-wide mutex. The "Global\" prefix is important.
+    private const string PortFinderMutexName = "Global\\Faster.Messagebus";
 
-    /// <summary>
-    /// Finds an available TCP port in the specified range,
-    /// skipping any ports already returned by this class.
-    /// </summary>
-    /// <param name="startPort">Initialize of the port range (inclusive).</param>
-    /// <param name="endPort">End of the port range (inclusive).</param>
-    /// <returns>An available port number.</returns>
-    public static ushort FindAvailablePort(ushort startPort, Action<int> bindAction)
+    public static int FindAndBindPortWithMutex(ushort startPort, ushort endPort, Action<int> bindAction)
     {
-        lock (_lock)
+        using (var mutex = new Mutex(false, PortFinderMutexName))
         {
-            if (startPort == 0)
+            try
             {
-                startPort = 10000;
-            }
-
-            var endPort = startPort + 2000;
-            for (var port = startPort; port <= endPort; port++)
-            {
-                if (_usedPorts.Contains(port))
+                // 1. Wait until we can acquire the mutex lock.
+                if (!mutex.WaitOne(TimeSpan.FromSeconds(10)))
                 {
-                    continue;
+                    throw new TimeoutException("Could not acquire mutex for port finding.");
                 }
 
-                if (IsPortAvailable(bindAction, port))
+                // 2. We now have exclusive access. No other instance can be in here.
+                for (var port = startPort; port <= endPort; port++)
                 {
-                    _usedPorts.Add(port);
-                    return port;
+                    try
+                    {
+                        bindAction(port);
+                        return port; // Success!
+                    }
+                    catch (NetMQException)
+                    {
+                        continue; // Port is taken, try the next one.
+                    }
                 }
+            }
+            finally
+            {
+                // 4. CRITICAL: Always release the mutex.
+                mutex.ReleaseMutex();
             }
         }
 
-        throw new InvalidOperationException("No available ports found in range.");
-    }
-
-    /// <summary>
-    /// Checks if a specific TCP port is available on the Local machine.
-    /// </summary>
-    /// <param name="port">Port number to check.</param>
-    /// <returns><c>true</c> if the port is not in use by any other process; otherwise, <c>false</c>.</returns>
-    private static bool IsPortAvailable(Action<int> bindAction, int port)
-    {
-        try
-        {
-            // Try to open a listener, then close immediately
-            bindAction(port);
-            return true;
-        }
-        catch (SocketException)
-        {
-            return false;
-        }
-        catch (NetMQException)
-        {
-            return false;
-        }
-        catch
-        {
-            // In case of any other error, assume not available
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Clears the internal record of used ports, so they can be returned again.
-    /// </summary>
-    public static void ResetUsedPorts()
-    {
-        lock (_lock)
-        {
-            _usedPorts.Clear();
-        }
+        throw new InvalidOperationException("No available ports found in the specified range.");
     }
 }

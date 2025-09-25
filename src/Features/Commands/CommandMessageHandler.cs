@@ -48,7 +48,7 @@ internal class CommandMessageHandler : ICommandMessageHandler
                 // This could be made more flexible, e.g., by using a custom attribute on the message class.
                 genericMethod.Invoke(this, new object[]
                 {
-                    WyHashHelper.Hash(messageType.Name)
+                    WyHash.Hash(messageType.Name)
                 });
                 continue;
             }
@@ -59,7 +59,7 @@ internal class CommandMessageHandler : ICommandMessageHandler
             // By convention, use the hashed message type's name as the topic.
             genericMethodResponse.Invoke(this, new object[]
             {
-                   WyHashHelper.Hash(messageType.Name)
+                   WyHash.Hash(messageType.Name)
             });
         }
     }
@@ -124,6 +124,11 @@ internal class CommandMessageHandler : ICommandMessageHandler
     /// </summary>
     /// <param name="topic">The unique identifier for the command topic.</param>
     /// <returns>A function that, when executed, processes the command and returns a serialized response.</returns>
-    public Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> GetHandler(ulong topic) => _commandHandlers[topic];
+    public Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> GetHandler(ulong topic)
+    {
+        _commandHandlers.TryGetValue(topic, out var x);
+        // TODO LOG when x is null
+        return x;
+    }
 
 }

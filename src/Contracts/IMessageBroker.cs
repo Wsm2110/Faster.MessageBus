@@ -27,8 +27,8 @@ using Microsoft.Extensions.DependencyInjection;
 ///         // Publish an event via the event dispatcher
 ///         _messageBus.EventDispatcher.Publish(new MyEvent());
 ///
-///         // SendAsync a command via the command dispatcher
-///         var response = await _messageBus.CommandDispatcher.Local.SendAsync(topic, command, timeout);
+///         // StreamAsync a command via the command dispatcher
+///         var response = await _messageBus.CommandDispatcher.Local.StreamAsync(topic, command, timeout);
 ///     }
 /// }
 /// </code>

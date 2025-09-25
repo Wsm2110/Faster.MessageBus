@@ -51,7 +51,7 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
 
     #region Fields
 
-    private readonly ConcurrentDictionary<ulong, DealerSocket> _sockets = new();
+    private readonly ConcurrentDictionary<ulong, (MeshInfo Info, DealerSocket Socket)> _sockets = new();
     private readonly IEventAggregator _eventAggregator;
     private readonly ICommandReplyHandler _handler;
     private readonly IOptions<MessageBrokerOptions> _options;
@@ -92,7 +92,7 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
         _pollerThread = new Thread(_poller.Run) { IsBackground = true, Name = "CommandProcessorThread" };
         _pollerThread.Start();
 
-        _onMeshJoined = data =>  AddSocket(data.Info);
+        _onMeshJoined = data => AddSocket(data.Info);
         _onMeshRemoved = data => RemoveSocket(data.Info);
 
         _eventAggregator.Subscribe(_onMeshJoined);
@@ -106,13 +106,13 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     /// </summary>
     /// <param name="count">The maximum number of sockets to return.</param>
     /// <returns>An <see cref="IEnumerable{T}"/> of tuples containing the mesh ID and the corresponding <see cref="DealerSocket"/>.</returns>
-    public IEnumerable<(ulong Id, DealerSocket Socket)> Get(int count)
+    public IEnumerable<(ulong Id, (MeshInfo Info, DealerSocket Socket))> Get(int count)
     {
         int i = 0;
         foreach (var pair in _sockets)
         {
             if (i++ >= count) break;
-            yield return (pair.Key, pair.Value);
+            yield return (pair.Key, (pair.Value.Info, pair.Value.Socket));
         }
     }
 
@@ -171,15 +171,15 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     {
         while (_commandSchedulerQueue.TryDequeue(out var command, TimeSpan.Zero))
         {
-            Span<byte> topicBuffer = stackalloc byte[sizeof(ulong)];
-            Span<byte> corrBuffer = stackalloc byte[sizeof(ulong)];
-            BitConverter.TryWriteBytes(topicBuffer, command.Topic);
-            BitConverter.TryWriteBytes(corrBuffer, command.CorrelationId);
+            // Convert ulong values to byte arrays
+            byte[] topicBuffer = BitConverter.GetBytes(command.Topic);
+            byte[] corrBuffer = BitConverter.GetBytes(command.CorrelationId);
 
-            command.Socket.SendMoreFrameEmpty()
-                          .SendSpanFrame(topicBuffer, true)
-                          .SendSpanFrame(corrBuffer, true)
-                          .SendSpanFrame(command.Payload.Span);
+            // Send frames using byte arrays
+            command.Socket.SendMoreFrameEmpty();
+            command.Socket.SendMoreFrame(topicBuffer);
+            command.Socket.SendMoreFrame(corrBuffer);
+            command.Socket.SendSpanFrame(command.Payload.Span);
         }
     }
     #endregion
@@ -199,14 +199,18 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
             return;
         }
 
-        if (!_sockets.ContainsKey(info.MeshId)) 
+        if (!_sockets.ContainsKey(info.MeshId))
         {
             var socket = new DealerSocket { Options = { Identity = DealerIdentityGenerator.Create() } };
             socket.ReceiveReady += _handler.ReceivedFromRouter!;
             socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
             _poller.Add(socket);
-            _sockets.AddOrUpdate(info.MeshId,  socket, (id, s) => s = socket);
-        }  
+            _sockets.AddOrUpdate(info.MeshId, (info, socket), (id, data) =>
+            {
+                data.Socket = socket;
+                return data;
+            });
+        }
     }
 
     /// <summary>
@@ -214,10 +218,10 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     /// </summary>
     private void HandleRemoveSocket(MeshInfo meshInfo)
     {
-        if (_sockets.Remove(meshInfo.MeshId, out var socket))
+        if (_sockets.TryRemove(meshInfo.MeshId, out var socketInfo))
         {
-            _poller.Remove(socket);
-            CleanupSocket(socket);
+            _poller.Remove(socketInfo.Socket);
+            CleanupSocket(socketInfo.Socket);
         }
     }
 
@@ -259,9 +263,9 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
         _socketManagerQueue.Dispose();
         _poller.Dispose();
 
-        foreach (var socket in _sockets.Values)
+        foreach (var socketInfo in _sockets.Values)
         {
-            CleanupSocket(socket);
+            CleanupSocket(socketInfo.Socket);
         }
         _sockets.Clear();
 

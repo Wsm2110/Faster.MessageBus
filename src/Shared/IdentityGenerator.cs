@@ -17,14 +17,14 @@ public static class DealerIdentityGenerator
     /// </summary>
     public static byte[] Create()
     {
-        var pid = Environment.ProcessId;                       // 4 bytes
-        var count = Interlocked.Increment(ref _counter);       // 4 bytes
+        int pid = System.Diagnostics.Process.GetCurrentProcess().Id; // instead of Environment.ProcessId
+        int count = Interlocked.Increment(ref _counter);
 
-        Span<byte> buffer = stackalloc byte[8];
-        BitConverter.TryWriteBytes(buffer[..4], pid);
-        BitConverter.TryWriteBytes(buffer[4..], count);
+        byte[] buffer = new byte[8];
+        Array.Copy(BitConverter.GetBytes(pid), 0, buffer, 0, 4);
+        Array.Copy(BitConverter.GetBytes(count), 0, buffer, 4, 4);
 
-        return buffer.ToArray();
+        return buffer;
     }
 
     /// <summary>

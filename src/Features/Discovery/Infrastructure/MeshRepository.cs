@@ -13,7 +13,14 @@ namespace Faster.MessageBus.Features.Discovery.Infrastructure
         private readonly Dictionary<ulong, MeshInfo> _discovered = new();
 
         /// <inheritdoc/>
-        public bool Add(MeshInfo info) => _discovered.TryAdd(info.MeshId, info);
+        public bool Add(MeshInfo info)
+        {
+            if (_discovered.ContainsKey(info.MeshId))
+                return false; // already exists
+
+            _discovered.Add(info.MeshId, info);
+            return true; // added successfully
+        }
 
         /// <inheritdoc/>
         public bool Remove(MeshInfo info) => _discovered.Remove(info.MeshId);

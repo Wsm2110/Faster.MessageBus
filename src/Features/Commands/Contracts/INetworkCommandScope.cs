@@ -27,7 +27,7 @@ namespace Faster.MessageBus.Features.Commands.Contracts
         /// <remarks>
         /// Due to network latency, responses may arrive at different times. The stream can be consumed using an <c>await foreach</c> loop.
         /// <code>
-        /// await foreach (var response in commandScope.SendAsync(topic, command, timeout))
+        /// await foreach (var response in commandScope.StreamAsync(topic, command, timeout))
         /// {
         ///     // Process each response from a remote service
         /// }
@@ -39,7 +39,7 @@ namespace Faster.MessageBus.Features.Commands.Contracts
         /// Broadcasts a command across the network and awaits completion acknowledgments from remote endpoints.
         /// This is suitable for notification-style or "fire-and-await-completion" commands where no data is returned.
         /// </summary>
-        /// <remarks>The method name "SendAsync" is unconventional; standard C# naming would be "SendAsync".</remarks>
+        /// <remarks>The method name "StreamAsync" is unconventional; standard C# naming would be "StreamAsync".</remarks>
         /// <param name="topic">The unique identifier for the command, used for routing.</param>
         /// <param name="command">The command object containing the data to be sent.</param>
         /// <param name="timeout">The maximum time to wait for completion acknowledgments from all remote endpoints.</param>

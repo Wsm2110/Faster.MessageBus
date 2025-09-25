@@ -107,10 +107,12 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
         PublisherSocket.Options.SendBuffer = 1024 * 1024;         // Set OS send buffer size to 1MB
 
         // Find an available TCP port and bind the publisher socket to it.
-        var port = PortFinder.FindAvailablePort(options.Value.PublishPort, port => PublisherSocket.Bind($"tcp://*:{port}"));
+        var port = PortFinder.FindAndBindPortWithMutex(options.Value.PublishPort, (ushort)(options.Value.PublishPort + 200), port => PublisherSocket.Bind($"tcp://*:{port}"));
+
+        Console.WriteLine($"Publisher socket bound to tcp://*:{port}");
 
         // Update the shared endpoint object so other parts of the application know which port was chosen.
-        endpoint.PubPort = port;
+        endpoint.PubPort = (ushort)port;
     }
 
     /// <summary>
@@ -184,6 +186,8 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
         _eventAggregator.Unsubscribe(_onMeshJoined);
         _eventAggregator.Unsubscribe(_onMeshRemoved);
 
+        PublisherSocket.Dispose();
+
         // Schedule the final cleanup of all active sockets on the scheduler thread.
         _scheduler.Invoke(poller =>
         {
@@ -193,10 +197,9 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
                 CleanupSocket(socketinfo.Socket);
             }
             _socketInfoList.Clear();
-        });
+        });       
 
-        // Dispose the scheduler itself, which will stop its dedicated thread.
-        _scheduler.Dispose();
+        // Dispose the scheduler itself, which will stop its dedicated thread.   
         GC.SuppressFinalize(this);
     }
 

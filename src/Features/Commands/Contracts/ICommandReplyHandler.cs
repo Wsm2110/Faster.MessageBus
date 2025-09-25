@@ -50,5 +50,5 @@ public interface ICommandReplyHandler
     /// <c>true</c> if a pending reply with the specified correlation ID was found and removed;
     /// otherwise, <c>false</c>.
     /// </returns>
-    bool TryUnregister(ulong corrId);
+    bool TryUnregister(long corrId);
 }

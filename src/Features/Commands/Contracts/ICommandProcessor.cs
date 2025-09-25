@@ -2,8 +2,6 @@
 using Faster.MessageBus.Features.Commands.Scope.Machine;
 using Faster.MessageBus.Shared;
 using NetMQ.Sockets;
-using System;
-using System.Collections.Generic;
 
 /// <summary>
 /// Defines the contract for a command processor that manages socket lifecycles and command scheduling.
@@ -28,7 +26,7 @@ public interface ICommandProcessor : IDisposable
     /// <summary>
     /// Returns an enumerable collection of managed sockets.
     /// </summary>
-    IEnumerable<(ulong Id, DealerSocket Socket)> Get(int count);
+    IEnumerable<(ulong Id, (MeshInfo Info, DealerSocket Socket))> Get(int count);
 
     /// <summary>
     /// Schedules the removal of the socket for a specified mesh node.

@@ -14,8 +14,8 @@ public class CommandReplyHandler : ICommandReplyHandler
 {
     // Holds the pending requests keyed by correlation ID.
     // When a reply is received, the corresponding TaskCompletionSource is completed.
-    private readonly ConcurrentDictionary<ulong, PendingReply<byte[]>> _pending =
-        new ConcurrentDictionary<ulong, PendingReply<byte[]>>();
+    private readonly ConcurrentDictionary<long, PendingReply<byte[]>> _pending =
+        new ConcurrentDictionary<long, PendingReply<byte[]>>();
 
     /// <summary>
     /// Registers a pending request that is awaiting a reply.
@@ -31,7 +31,7 @@ public class CommandReplyHandler : ICommandReplyHandler
     /// </summary>
     /// <param name="corrId">The correlation ID of the pending request to remove.</param>
     /// <returns>True if the pending request was found and removed; otherwise, false.</returns>
-    public bool TryUnregister(ulong corrId)
+    public bool TryUnregister(long corrId)
     {
         // Attempts to remove the pending request from the dictionary.
         // This is the correct implementation, returning true on successful removal.
@@ -60,7 +60,7 @@ public class CommandReplyHandler : ICommandReplyHandler
         while (e.Socket.TryReceiveMultipartMessage(ref msg, 4))
         {
             // The correlation ID is expected in the second frame (index 1).
-            ulong corrId = MemoryMarshal.Read<ulong>(msg[1].Buffer);
+            long corrId = MemoryMarshal.Read<long>(msg[1].Buffer);
 
             // Attempt to find and remove the pending request associated with the correlation ID.
             if (_pending.TryRemove(corrId, out var pending))

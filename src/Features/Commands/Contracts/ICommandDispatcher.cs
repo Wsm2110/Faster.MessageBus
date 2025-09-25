@@ -20,11 +20,11 @@
     ///
     ///     public async Task DoWork()
     ///     {
-    ///         // SendAsync a command within the same process
-    ///         var response = await _messageHandler.Local.SendAsync(topic, command, timeout);
+    ///         // StreamAsync a command within the same process
+    ///         var response = await _messageHandler.Local.StreamAsync(topic, command, timeout);
     ///
     ///         // Broadcast a command to all nodes in the cluster
-    ///         await foreach(var clusterResponse in _messageHandler.Cluster.SendAsync(topic, command, timeout))
+    ///         await foreach(var clusterResponse in _messageHandler.Cluster.StreamAsync(topic, command, timeout))
     ///         {
     ///             // process results from cluster...
     ///         }

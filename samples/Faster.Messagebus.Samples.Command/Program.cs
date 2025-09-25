@@ -14,17 +14,17 @@ var provider = builder.BuildServiceProvider();
 // 2. Resolve the main message broker service from the container.
 var messageBus = provider.GetRequiredService<IMessageBroker>();
 
-// 3. SendAsync a command which will return without result indicating the other end received and processed our command
+// 3. StreamAsync a command which will return without result indicating the other end received and processed our command
 // This command implements ICommand, so it does not expect a reply.
 // The call will complete once the command is dispatched.
-await messageBus.CommandDispatcher.Local.SendAsync(new UserCreatedEvent("I AM GROOT Local"), TimeSpan.FromSeconds(5), CancellationToken.None);
+await messageBus.CommandDispatcher.Local.SendAsync(new UserCreatedEvent("I AM GROOT Local"), TimeSpan.FromSeconds(5));
 
-var result = await messageBus.CommandDispatcher.Local.SendAsync(new HelloEvent("I AM GROOT"), TimeSpan.FromSeconds(1), CancellationToken.None);
+//var result = await messageBus.CommandDispatcher.Local.StreamAsync(new HelloEvent("I AM GROOT"), TimeSpan.FromSeconds(1), CancellationToken.None);
 
-// 4. SendAsync a "request-response" command.
+// 4. StreamAsync a "request-response" command.
 // This command implements ICommand<string>, indicating it expects a string in return.
 // The 'await' will pause execution until a response is received or a timeout occurs.
-//await messageBus.CommandDispatcher.Machine.SendAsync(new HelloEventNoResponse("I AM"), TimeSpan.FromSeconds(1), CancellationToken.None);
+//await messageBus.CommandDispatcher.Machine.StreamAsync(new HelloEventNoResponse("I AM"), TimeSpan.FromSeconds(1), CancellationToken.None);
 
 await Task.Delay(TimeSpan.FromSeconds(1));
 Console.WriteLine("start");
@@ -34,7 +34,7 @@ while (counter < 10000)
 {
     try
     {
-        await foreach (var response in messageBus.CommandDispatcher.Machine.SendAsync(new HelloEvent("I AM GROOT Machine"), TimeSpan.FromSeconds(1), CancellationToken.None))
+        await foreach (var response in messageBus.CommandDispatcher.Machine.StreamAsync(new HelloEvent("I AM GROOT Machine"), TimeSpan.FromSeconds(1)))
         {
           // Console.WriteLine(response);
         }

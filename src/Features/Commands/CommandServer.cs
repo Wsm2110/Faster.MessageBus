@@ -91,12 +91,12 @@ public class CommandServer : IDisposable
         _router.Options.SendBuffer = 1024 * 64;           // OS send buffer size
 
         // find random port in range of 10000 -12000
-        var port = PortFinder.FindAvailablePort(options.Value.RPCPort, port => _router.Bind($"tcp://*:{port}"));
-        localMeshEndpoint.RpcPort = port;
+        var port = PortFinder.FindAndBindPortWithMutex(options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
+        localMeshEndpoint.RpcPort = (ushort)port;
 
         eventAggregator.Publish(new MeshJoined(localMeshEndpoint.GetMesh(true)));
 
-        Console.WriteLine(_serverName + $"tcp://*:{port}");
+        Console.WriteLine($"ROuter socket bound to tcp://*:{port}");
 
         // Initialize the response queue and its callback.
         _receiveCommandQueue = new NetMQQueue<NetMQMessage>();
@@ -159,9 +159,13 @@ public class CommandServer : IDisposable
 
         // Dispatch the payload to the appropriate command handler.
         var payload = new ReadOnlySequence<byte>(payloadFrame.Buffer, 0, payloadFrame.MessageSize);
+        var handler = _messageHandler.GetHandler(topic);
 
-        var result = await _messageHandler.GetHandler(topic).Invoke(_serviceProvider, _commandSerializer, payload);
-
+        byte[] result = [];
+        if (handler != null)
+        {
+            result = await handler.Invoke(_serviceProvider, _commandSerializer, payload);
+        }
         // Build the response message.
         msg.Clear();
         msg.Append(identity);

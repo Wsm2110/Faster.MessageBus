@@ -33,8 +33,8 @@ using System;
 ///         // Publish an event
 ///         _messageBus.EventDispatcher.Publish(new MyEvent());
 ///
-///         // SendAsync a command and get a reply
-///         var response = await _messageBus.CommandDispatcher.Local.SendAsync(topic, command, timeout);
+///         // StreamAsync a command and get a reply
+///         var response = await _messageBus.CommandDispatcher.Local.StreamAsync(topic, command, timeout);
 ///     }
 /// }
 /// </code>

@@ -36,7 +36,7 @@ public class ClusterDispatcherTests
 
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
-        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(20), CancellationToken.None))
+        await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(20)))
         {
             ++count;
         }
@@ -70,7 +70,7 @@ public class ClusterDispatcherTests
       
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
-        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(20), CancellationToken.None))
+        await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(20)))
         {
             ++count;
         }
@@ -93,7 +93,7 @@ public class ClusterDispatcherTests
 
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
-        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(2), cts.Token))
+        await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(2)))
         {
             ++count;
         }
@@ -118,7 +118,7 @@ public class ClusterDispatcherTests
 
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
-        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(2), cts.Token))
+        await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(2)))
         {
             ++count;
         }
@@ -143,7 +143,7 @@ public class ClusterDispatcherTests
 
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
-        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(2), cts.Token))
+        await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(2)))
         {
             ++count;
         }
@@ -176,7 +176,7 @@ public class ClusterDispatcherTests
 
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
-        await foreach (var resp in broker.CommandDispatcher.Cluster.SendAsync(new Ping("hi"), TimeSpan.FromSeconds(2), CancellationToken.None))
+        await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(2), (e, destionation) => { }, CancellationToken.None))
         {
             ++count;
         }
