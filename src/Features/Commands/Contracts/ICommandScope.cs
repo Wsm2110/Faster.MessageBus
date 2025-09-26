@@ -1,4 +1,5 @@
 ﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
 using System.Runtime.CompilerServices;
 

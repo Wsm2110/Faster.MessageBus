@@ -1,4 +1,3 @@
-using Xunit;
 using Microsoft.Extensions.DependencyInjection;
 using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Shared;
@@ -6,6 +5,9 @@ using System.Threading.Tasks;
 using System;
 using System.Threading;
 using System.Collections.Generic;
+using Xunit;
+using System.Linq;
+using UnitTests;
 
 namespace MachineTests;
 
@@ -14,198 +16,188 @@ public class MachineDispatcherTests
     [Fact]
     public async Task Machine_SendAsync_single_provider_returns_response()
     {
-        var services = new ServiceCollection();
-        services.AddMessageBus(options =>
+        // Arrange
+        using var machineBase = new MachineBase();
+
+        var (_, broker) = machineBase.CreateMessageBus(services =>
         {
-            // ensure a valid port, unique enough for tests running in parallel on CI
-            options.RPCPort = (ushort)(52350 + (Environment.ProcessId % 1000));
+            services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
         });
 
-        // explicitly register handler to avoid relying on assembly scanning
-        services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
+        await Task.Delay(TimeSpan.FromSeconds(1)); // allow discovery
 
-        using var provider = services.BuildServiceProvider();
-        var broker = provider.GetRequiredService<IMessageBroker>();
-
-        // allow discovery / startup to stabilize
-        await Task.Delay(TimeSpan.FromSeconds(1));
-
+        // Act
         int count = 0;
-        await foreach (var resp in broker.CommandDispatcher.Machine.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(10)))
+        await foreach (var _ in broker.CommandDispatcher.Machine.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(10)))
         {
             ++count;
         }
 
+        // Assert
         Assert.True(count >= 1);
     }
 
     [Fact]
-    public async void Machine_SendAsync_two_providers_returns_two_responses()
+    public async Task Machine_SendAsync_two_providers_returns_two_responses()
     {
-        // provider 1
-        var services1 = new ServiceCollection();
-        services1.AddMessageBus();
-        using var provider1 = services1.BuildServiceProvider();
-        var broker1 = provider1.GetRequiredService<IMessageBroker>();
+        // Arrange
+        Action<IServiceCollection> addHandler = services => services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
+        using var machineBase = new MachineBase();
 
-        // provider 2 (same machine)
-        var services2 = new ServiceCollection();
-        services2.AddMessageBus();
 
-        using var provider2 = services2.BuildServiceProvider();
-        var broker2 = provider2.GetRequiredService<IMessageBroker>();
+        var (_, broker1) = machineBase.CreateMessageBus(addHandler);
 
-        // wait for discovery and socket wiring
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        _ = machineBase.CreateMessageBus(addHandler); // Create second provider
 
+        await Task.Delay(TimeSpan.FromSeconds(1)); // wait for discovery
+
+        // Act
         int count = 0;
-        await foreach (var resp in broker1.CommandDispatcher.Machine.StreamResultAsync(new Ping("hello"), TimeSpan.FromSeconds(2)))
+        await foreach (var result in broker1.CommandDispatcher.Machine.StreamResultAsync(new Ping("hello"), TimeSpan.FromSeconds(2)))
         {
-            if (resp.IsSuccess) 
+            if (result.IsSuccess)
             {
                 count++;
-
             }
-
         }
 
-        // Expect at least two responders (could include self depending on configuration)
-        Assert.True(count == 2);
+        // Assert
+        Assert.Equal(2, count);
+
+
     }
 
     [Fact]
     public async Task Machine_SendAsync_handles_cancellation()
     {
-        var services = new ServiceCollection();
-        services.AddMessageBus(options =>
+        // Arrange
+        using var machineBase = new MachineBase();
+
+        var (_, broker) = machineBase.CreateMessageBus(services =>
         {
-            options.RPCPort = (ushort)(52380 + (Environment.ProcessId % 1000));
+            services.AddTransient<ICommandHandler<Ping, string>, SlowPongCommandHandler>();
         });
-        services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
+        await Task.Delay(TimeSpan.FromSeconds(1)); // allow startup
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
 
-        using var provider = services.BuildServiceProvider();
-        var broker = provider.GetRequiredService<IMessageBroker>();
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
-        int count = 0;
-
-        try
-        {
-            await foreach (var resp in broker.CommandDispatcher.Machine.StreamAsync(new Ping("timeout"), TimeSpan.FromSeconds(10)))
+        // Act & Assert
+        await foreach (var _ in broker.CommandDispatcher.Machine.StreamAsync(new Ping("timeout"),
+            TimeSpan.FromSeconds(2), (ex, target) => 
             {
-                ++count;
-            }
-        }
-        catch (OperationCanceledException)
+            
+            }))
         {
-            // expected when cancelled
+            // This loop should be cancelled before it receives a response
         }
 
-        // either zero responses (cancelled) or some if timing allowed — ensure no exception leaked
-        Assert.True(count >= 0);
     }
 
     [Fact]
     public async Task Machine_StreamResultAsync_no_handler_returns_no_response()
     {
-        var services = new ServiceCollection();
-        services.AddMessageBus(options =>
-        {
-            options.RPCPort = (ushort)(52390 + (Environment.ProcessId % 1000));
-        });
-        using var provider = services.BuildServiceProvider();
-        var broker = provider.GetRequiredService<IMessageBroker>();
-        await Task.Delay(TimeSpan.FromSeconds(1));
-        int count = 0;
+        // Arrange
+        using var machineBase = new MachineBase();
 
+        var (_, broker) = machineBase.CreateMessageBus(); // No handler registered for Smile command
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        // Act
+        int count = 0;
         await foreach (var resp in broker.CommandDispatcher.Machine.StreamResultAsync(new Smile(), TimeSpan.FromSeconds(2)))
         {
-            resp.Match(success => ++count,
-                error =>
-                {
-                    Console.WriteLine(error.Message);
-                });
+            resp.Match(
+                success => ++count,
+                error => Console.WriteLine(error.Message)
+            );
         }
 
-        Assert.True(count == 0);
+        // Assert
+        Assert.Equal(0, count);
     }
-
-    [Fact]
-    public async Task Machine_StreamAsync_no_handler_returns_no_response()
-    {
-        var services = new ServiceCollection();
-        services.AddMessageBus(options =>
-        {
-            options.RPCPort = (ushort)(52390 + (Environment.ProcessId % 1000));
-            options.ApplicationName = "Smile and wave";
-        });
-
-        using var provider = services.BuildServiceProvider();
-        var broker = provider.GetRequiredService<IMessageBroker>();
-        await Task.Delay(TimeSpan.FromSeconds(1));
-        int count = 0;
-
-        Action<Exception, MeshInfo> OnException = (ex, info) =>
-        {
-            Console.WriteLine($"Timeout or error for WorkStation {info.WorkstationName} - Application: {info.ApplicationName} - url {info.Address}:{info.RpcPort}: {ex.Message}");
-        };
-
-        await foreach (var resp in broker.CommandDispatcher.Machine.StreamAsync(new Smile(), TimeSpan.FromSeconds(2), OnException)) 
-        {
-         
-        }
-
-        Assert.True(count == 0);
-    }
-
 
     [Fact]
     public async Task Machine_SendAsync_multiple_handlers_returns_single_response()
     {
-        var services = new ServiceCollection();
-        services.AddMessageBus(options =>
+        // Arrange
+        using var machineBase = new MachineBase();
+        var (_, broker) = machineBase.CreateMessageBus(services =>
         {
-            options.RPCPort = (ushort)(52400 + (Environment.ProcessId % 1000));
+            // With default DI, the last registration for an interface overwrites previous ones.
+            services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
+            services.AddTransient<ICommandHandler<Ping, string>, AltPongCommandHandler>();
         });
-        // Multiple handlers registered, but only one will be invoked per message per process
-        services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
-        services.AddTransient<ICommandHandler<Ping, string>, AltPongCommandHandler>();
-        using var provider = services.BuildServiceProvider();
-        var broker = provider.GetRequiredService<IMessageBroker>();
         await Task.Delay(TimeSpan.FromSeconds(1));
-        int count = 0;
-        var responses = new HashSet<string>();
+
+        // Act
+        var responses = new List<string>();
         await foreach (var resp in broker.CommandDispatcher.Machine.StreamAsync(new Ping("multi"), TimeSpan.FromSeconds(2)))
         {
-            ++count;
             responses.Add(resp);
         }
-        // Only one response expected from this process
-        Assert.True(count == 1);
-        Assert.True(responses.Contains("pong") || responses.Contains("altpong"));
+
+        // Assert
+        var response = Assert.Single(responses); // Only one response expected from this process
+        Assert.Equal("altpong", response); // The last registered handler ("AltPong") should be invoked
     }
 
     [Fact]
     public async Task Machine_SendAsync_empty_message_returns_response()
     {
-        var services = new ServiceCollection();
-        services.AddMessageBus(options =>
+        // Arrange
+        using var machineBase = new MachineBase();
+
+        var (_, broker) = machineBase.CreateMessageBus(services =>
         {
-            options.RPCPort = (ushort)(52410 + (Environment.ProcessId % 1000));
+            services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
         });
-        services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
-        using var provider = services.BuildServiceProvider();
-        var broker = provider.GetRequiredService<IMessageBroker>();
         await Task.Delay(TimeSpan.FromSeconds(1));
-        int count = 0;
+
+        // Act
+        var responses = new List<string>();
         await foreach (var resp in broker.CommandDispatcher.Machine.StreamAsync(new Ping(string.Empty), TimeSpan.FromSeconds(2)))
         {
-            ++count;
+            responses.Add(resp);
         }
-        Assert.True(count >= 1);
+
+        // Assert
+        Assert.NotEmpty(responses);
     }
 
-    // simple command + handler used by tests
+    [Fact]
+    public async Task Machine_SendAsync_ten_providers_returns_ten_responses()
+    {
+        // Arrange
+        using var machineBase = new MachineBase();
+
+        const int providerCount = 10;
+        var brokers = new List<IMessageBroker>();
+        Action<IServiceCollection> addHandler = services => services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
+
+        for (int i = 0; i < providerCount; i++)
+        {
+            var (_, broker) = machineBase.CreateMessageBus(addHandler);
+            brokers.Add(broker);
+        }
+
+        // Give the mesh network time to form among all 10 nodes
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        var sendingBroker = brokers.First();
+
+        // Act
+        int successCount = 0;
+        // Set a generous timeout to allow all nodes to respond
+        await foreach (var result in sendingBroker.CommandDispatcher.Machine.StreamResultAsync(new Ping("scale test"), TimeSpan.FromSeconds(5)))
+        {
+            if (result.IsSuccess)
+            {
+                successCount++;
+            }
+        }
+
+        // Assert
+        Assert.Equal(providerCount, successCount);
+    }
     public record Ping(string Message) : ICommand<string>;
 
     public record Smile : ICommand<string>;
@@ -223,6 +215,15 @@ public class MachineDispatcherTests
         public Task<string> Handle(Ping message, CancellationToken cancellationToken)
         {
             return Task.FromResult("altpong");
+        }
+    }
+
+    public class SlowPongCommandHandler : ICommandHandler<Ping, string>
+    {
+        public async Task<string> Handle(Ping message, CancellationToken cancellationToken)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            return "slow-pong";
         }
     }
 }

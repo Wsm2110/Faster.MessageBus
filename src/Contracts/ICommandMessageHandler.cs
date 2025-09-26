@@ -1,7 +1,7 @@
-﻿using Faster.MessageBus.Contracts;
+﻿using Faster.MessageBus.Features.Commands;
 using System.Buffers;
 
-namespace Faster.MessageBus.Features.Commands
+namespace Faster.MessageBus.Contracts
 {
     public interface ICommandMessageHandler
     {

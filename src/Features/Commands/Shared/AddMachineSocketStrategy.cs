@@ -1,7 +1,8 @@
-﻿using Faster.MessageBus.Shared;
+﻿using Faster.MessageBus.Features.Commands.Contracts;
+using Faster.MessageBus.Shared;
 using Microsoft.Extensions.Options;
 
-namespace Faster.MessageBus.Features.Commands.Scope.Machine
+namespace Faster.MessageBus.Features.Commands.Shared
 {
     internal class AddMachineSocketStrategy : ISocketStrategy
     {

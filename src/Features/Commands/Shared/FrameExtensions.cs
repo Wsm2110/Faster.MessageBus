@@ -1,6 +1,6 @@
 ﻿using NetMQ;
 
-namespace Faster.MessageBus.Features.Commands.Extensions;
+namespace Faster.MessageBus.Features.Commands.Shared;
 
 public static class FrameExtensions
 {

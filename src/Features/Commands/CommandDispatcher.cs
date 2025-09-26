@@ -1,7 +1,6 @@
 ﻿using Faster.MessageBus;
 using Faster.MessageBus.Features.Commands.Contracts;
-using Faster.MessageBus.Features.Commands.Scope.Cluster;
-using Faster.MessageBus.Features.Commands.Scope.Machine;
+using Faster.MessageBus.Features.Commands.Shared;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>

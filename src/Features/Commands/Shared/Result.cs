@@ -1,4 +1,4 @@
-﻿namespace Faster.MessageBus.Shared
+﻿namespace Faster.MessageBus.Features.Commands.Shared
 {
     /// <summary>
     /// Represents the outcome of an operation, which can either be a successful value or an error.

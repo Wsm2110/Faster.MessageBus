@@ -1,5 +1,4 @@
-﻿using Faster.MessageBus.Features.Commands.Scope.Cluster;
-using Faster.MessageBus.Features.Commands.Shared;
+﻿using Faster.MessageBus.Features.Commands.Shared;
 
 namespace Faster.MessageBus.Shared;
 

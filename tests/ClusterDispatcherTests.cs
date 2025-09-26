@@ -5,6 +5,7 @@ using Faster.MessageBus.Shared;
 using System.Threading.Tasks;
 using System;
 using System.Threading;
+using Faster.MessageBus.Features.Commands.Shared;
 namespace ClusterTests;
 
 public class ClusterDispatcherTests
@@ -109,7 +110,7 @@ public class ClusterDispatcherTests
         var builder = new ServiceCollection().AddMessageBus(options =>
         {
             options.ApplicationName = "TestApp";
-            options.Cluster.Applications.Add(new Faster.MessageBus.Features.Commands.Scope.Cluster.Application("TestApp"));
+            options.Cluster.Applications.Add(new Application("TestApp"));
         });
 
         var provider = builder.BuildServiceProvider();
@@ -134,7 +135,7 @@ public class ClusterDispatcherTests
         var builder = new ServiceCollection().AddMessageBus(options =>
         {
             
-            options.Cluster.Applications.Add(new Faster.MessageBus.Features.Commands.Scope.Cluster.Application("TestApp"));
+            options.Cluster.Applications.Add(new Application("TestApp"));
         });
 
         var provider = builder.BuildServiceProvider();
@@ -158,7 +159,7 @@ public class ClusterDispatcherTests
         // 1. Set up the dependency injection container and register the message bus services.
         var builder = new ServiceCollection().AddMessageBus(options =>
         {           
-            options.Cluster.Applications.Add(new Faster.MessageBus.Features.Commands.Scope.Cluster.Application("TestApp"));
+            options.Cluster.Applications.Add(new Application("TestApp"));
         });
 
        using var provider = builder.BuildServiceProvider();

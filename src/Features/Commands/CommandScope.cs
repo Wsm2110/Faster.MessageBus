@@ -1,10 +1,8 @@
 ﻿using CommunityToolkit.HighPerformance.Buffers;
 using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands.Contracts;
-using Faster.MessageBus.Features.Commands.Scope.Machine;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
-using MessagePack.Formatters;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -97,7 +95,8 @@ public class CommandScope(
                 ReadOnlyMemory<byte> respBytes = await pending.AsValueTask().ConfigureAwait(false);
                 if (respBytes.Length == 0)
                 {
-                    throw new Exception("Payload length cannot be 0");
+                    OnException?.Invoke(new CommandProcessingException("A mesh server returned an empty response, indicating a processing error."), pending.Target);
+                    continue;
                 }
                 val = serializer.Deserialize<TResponse>(respBytes);
             }
@@ -257,6 +256,12 @@ public class CommandScope(
             try
             {
                 ReadOnlyMemory<byte> respBytes = await pending.AsValueTask().ConfigureAwait(false);
+                if (respBytes.Length == 0)
+                {
+                    val = (Result<TResponse>)new CommandProcessingException("A mesh server returned an empty response, indicating a processing error.");
+                    continue;
+                }
+
                 TResponse response = serializer.Deserialize<TResponse>(respBytes);
                 val = response; // Implicit conversion from TResponse to Result<TResponse>.Success
             }

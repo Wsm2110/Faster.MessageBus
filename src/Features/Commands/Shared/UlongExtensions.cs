@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Faster.MessageBus.Features.Commands.Extensions;
+namespace Faster.MessageBus.Features.Commands.Shared;
 
 public static class FastConvert
 {

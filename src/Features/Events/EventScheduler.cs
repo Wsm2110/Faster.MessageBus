@@ -1,6 +1,6 @@
 ﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands;
-using Faster.MessageBus.Features.Commands.Extensions;
+using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Features.Events.Shared;
 using NetMQ;

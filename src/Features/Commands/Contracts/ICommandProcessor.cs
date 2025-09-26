@@ -1,5 +1,5 @@
 ﻿using Faster.MessageBus.Features.Commands;
-using Faster.MessageBus.Features.Commands.Scope.Machine;
+using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Shared;
 using NetMQ.Sockets;
 

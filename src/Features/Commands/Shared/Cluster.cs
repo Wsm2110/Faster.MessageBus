@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Faster.MessageBus.Features.Commands.Scope.Cluster;
+namespace Faster.MessageBus.Features.Commands.Shared;
 
 /// <summary>
 /// Represents a single, addressable node (e.g., a server or container) within a cluster.
