@@ -32,10 +32,10 @@ public class CommandScope(
     /// <remarks>
     /// This method is designed for "scatter-gather" scenarios where a single command can
     /// yield multiple replies. If any individual response fails or times out, that specific
-    /// error is handled based on the presence of the <paramref name="OnException"/> callback.
-    /// If <paramref name="OnException"/> is provided, the error is handled out-of-band, and
+    /// error is handled based on the presence of the <paramref name="OnTimeout"/> callback.
+    /// If <paramref name="OnTimeout"/> is provided, the error is handled out-of-band, and
     /// the stream will yield a <c>default(TResponse)</c> for that failed item.
-    /// If <paramref name="OnException"/> is <c>null</c>, individual errors will propagate
+    /// If <paramref name="OnTimeout"/> is <c>null</c>, individual errors will propagate
     /// as exceptions, potentially terminating the consumer's stream loop.
     /// <para>
     /// You can consume the stream of responses using an <c>await foreach</c> loop.
@@ -50,7 +50,7 @@ public class CommandScope(
     /// <typeparam name="TResponse">The type of the response objects expected in the stream.</typeparam>
     /// <param name="command">The command object containing the data to be sent. Cannot be null.</param>
     /// <param name="timeout">The maximum duration to wait for each command response before it's considered timed out.</param>
-    /// <param name="OnException">
+    /// <param name="OnTimeout">
     /// An optional callback that is invoked if an individual command response times out.
     /// The first parameter is the <see cref="Exception"/> (typically <see cref="OperationCanceledException"/>)
     /// representing the timeout, and the second is a string identifier (e.g., correlation ID) of the failed request.
@@ -64,13 +64,13 @@ public class CommandScope(
     /// <returns>
     /// An asynchronous stream (<see cref="IAsyncEnumerable{TResponse}"/>) that yields each successful response
     /// of type <typeparamref name="TResponse"/> as it is received from an endpoint on the machine.
-    /// For timed-out or failed individual requests (when <paramref name="OnException"/> is provided),
+    /// For timed-out or failed individual requests (when <paramref name="OnTimeout"/> is provided),
     /// a <c>default(TResponse)</c> will be yielded.
     /// </returns>
     public async IAsyncEnumerable<TResponse> StreamAsync<TResponse>(
         ICommand<TResponse> command,
         TimeSpan timeout = default,
-        Action<Exception, MeshInfo>? OnException = default,
+        Action<Exception, MeshInfo>? OnTimeout = default,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         if (timeout == default)
@@ -93,17 +93,19 @@ public class CommandScope(
             try
             {
                 ReadOnlyMemory<byte> respBytes = await pending.AsValueTask().ConfigureAwait(false);
+                // If the response is empty, continue to the next iteration.
+                // Note that an empty response is valid for commands without a matching commandhandler.
                 if (respBytes.Length == 0)
                 {
-                    OnException?.Invoke(new CommandProcessingException("A mesh server returned an empty response, indicating a processing error."), pending.Target);
                     continue;
                 }
+
                 val = serializer.Deserialize<TResponse>(respBytes);
             }
-            catch (Exception e)
+            catch (OperationCanceledException e)
             {
                 // Catch any other unexpected exceptions.
-                OnException?.Invoke(e, pending.Target); // Use OnException for general exceptions too, or create a new callback.           
+                OnTimeout?.Invoke(e, pending.Target); // Use OnTimeout for general exceptions too, or create a new callback.           
             }
             finally
             {
@@ -126,11 +128,11 @@ public class CommandScope(
     /// The returned <see cref="Task"/> will complete successfully if all endpoints acknowledge
     /// the command within the specified timeout, or it will fault if an unhandled exception occurs
     /// or if the overall operation times out. Individual endpoint failures (if not handled via
-    /// <paramref name="OnException"/>) will cause the overall <see cref="Task"/> to fault.
+    /// <paramref name="OnTimeout"/>) will cause the overall <see cref="Task"/> to fault.
     /// </remarks>
     /// <param name="command">The command object containing the data to be sent. Cannot be null.</param>
     /// <param name="timeout">The maximum total time to wait for completion acknowledgments from all endpoints.</param>
-    /// <param name="OnException">
+    /// <param name="OnTimeout">
     /// An optional callback that is invoked if an exception occurs during the processing of an individual command
     /// or a specific endpoint response. The first parameter is the <see cref="Exception"/> that occurred,
     /// and the second is a string identifier (e.g., correlation ID) of the failed request.
@@ -144,7 +146,7 @@ public class CommandScope(
     /// A <see cref="Task"/> that completes when all endpoints have acknowledged the command
     /// or the overall operation times out.
     /// </returns>
-    public async Task SendAsync(ICommand command, TimeSpan timeout, Action<Exception, MeshInfo>? OnException = default, CancellationToken ct = default)
+    public async Task SendAsync(ICommand command, TimeSpan timeout, Action<Exception, MeshInfo>? OnTimeout = default, CancellationToken ct = default)
     {
         // Scatter the command and get the context for the pending replies.
         using var context = Scatter(command, timeout, ct);
@@ -163,13 +165,8 @@ public class CommandScope(
             }
             catch (OperationCanceledException e)
             {
-                OnException?.Invoke(e, pending.Target);
-                // If OnException is handled, the loop continues.
-            }
-            catch (Exception e) // Catch any other exceptions for this item
-            {
-                OnException?.Invoke(e, pending.Target);
-            }
+                OnTimeout?.Invoke(e, pending.Target);              
+            }         
             finally
             {
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
@@ -258,7 +255,6 @@ public class CommandScope(
                 ReadOnlyMemory<byte> respBytes = await pending.AsValueTask().ConfigureAwait(false);
                 if (respBytes.Length == 0)
                 {
-                    val = (Result<TResponse>)new CommandProcessingException("A mesh server returned an empty response, indicating a processing error.");
                     continue;
                 }
 

@@ -66,7 +66,7 @@ public class CommandServer : IDisposable
         ICommandSerializer commandSerializer,
         ICommandMessageHandler messageHandler,
         IEventAggregator eventAggregator,
-        LocalEndpoint localMeshEndpoint)
+        Mesh localMeshEndpoint)
     {
         _serviceProvider = serviceProvider;
         _commandSerializer = commandSerializer;
@@ -94,7 +94,7 @@ public class CommandServer : IDisposable
         var port = PortFinder.FindAndBindPortWithMutex(options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
         localMeshEndpoint.RpcPort = (ushort)port;
 
-        eventAggregator.Publish(new MeshJoined(localMeshEndpoint.GetMesh(true)));
+        eventAggregator.Publish(new MeshJoined(localMeshEndpoint.GetMeshInfo(true)));
 
         Console.WriteLine($"ROuter socket bound to tcp://*:{port}");
 

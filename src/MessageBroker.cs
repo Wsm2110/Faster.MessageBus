@@ -1,12 +1,12 @@
-﻿using Faster.MessageBus;
-using Faster.MessageBus.Contracts;
+﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
+using Faster.MessageBus.Features.Discovery.Contracts;
 using Faster.MessageBus.Features.Events;
 using Faster.MessageBus.Features.Events.Contracts;
+using Faster.MessageBus.Features.Heartbeat.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using System;
 
 /// <summary>
 /// The main, unified entry point for the entire message bus system.
@@ -40,10 +40,8 @@ using System;
 /// </code>
 /// </example>
 /// </remarks>
-public class MessageBroker : IServiceInstaller, IMessageBroker, IDisposable
+public class MessageBroker : IMessageBroker
 {
-    private bool disposedValue;
-
     /// <summary>
     /// Gets the dispatcher for publishing events using the publish-subscribe pattern.
     /// </summary>
@@ -56,33 +54,45 @@ public class MessageBroker : IServiceInstaller, IMessageBroker, IDisposable
     /// <value>The <see cref="ICommandDispatcher"/> implementation.</value>
     public ICommandDispatcher CommandDispatcher { get; }
 
-    private Ilifetime _lifetime;
-
-    /// <summary>
-    /// 
-    /// </summary>
-    public MessageBroker()
-    {
-        // Used for reflection...
-    }
-
     /// <summary>
     /// Initializes a new instance of the <see cref="MessageBroker"/> class.
     /// </summary>
     /// <param name="eventDispatcher">The concrete event dispatcher implementation.</param>
     /// <param name="commandDispatcher">The concrete command dispatcher implementation.</param>
     public MessageBroker(IEventDispatcher eventDispatcher,
-        ICommandDispatcher commandDispatcher, 
-        IServiceProvider serviceProvider)
+        ICommandDispatcher commandDispatcher,
+        IServiceProvider serviceProvider, Mesh mesh)
     {
         EventDispatcher = eventDispatcher;
         CommandDispatcher = commandDispatcher;
 
-        // initialize startup classes
-        _lifetime = serviceProvider.GetRequiredService<Ilifetime>();
-        _lifetime.Initialize();
-    }
+        serviceProvider.GetRequiredService<CommandServer>();
+        serviceProvider.GetRequiredService<IHeartBeatMonitor>();
 
+        var scanner = serviceProvider.GetRequiredService<ICommandAssemblyScanner>();
+        var handler = serviceProvider.GetRequiredService<ICommandMessageHandler>();
+
+        var commandContext = scanner.ScanForCommands().ToList();
+        handler.Initialize(commandContext);
+
+        // Init bloom filter
+        var filter = serviceProvider.GetRequiredService<ICommandRoutingFilter>();
+        filter.Initialize(commandContext.Count);
+
+        foreach (var command in commandContext)
+        {
+            var hash = WyHash.Hash(command.messageType.Name);
+            filter.Add(hash);          
+        }
+
+        // start discovery once were registered 
+        serviceProvider.GetRequiredService<IMeshDiscoveryService>()
+            .Start(mesh.GetMeshInfo());
+    }
+}
+
+public class ServiceInstaller : IServiceInstaller
+{
     /// <inheritdoc/>
     public void Install(IServiceCollection serviceCollection)
     {
@@ -92,38 +102,5 @@ public class MessageBroker : IServiceInstaller, IMessageBroker, IDisposable
         serviceCollection.AddSingleton<ICommandDispatcher, CommandDispatcher>();
         serviceCollection.AddSingleton<IEventDispatcher, EventDispatcher>();
         serviceCollection.AddSingleton<IEventAggregator, EventAggregator>();
-
-        serviceCollection.AddSingleton<Ilifetime, Lifetime>();
-
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!disposedValue)
-        {
-            if (disposing)
-            {
-                _lifetime.Destruct();
-                // TODO: dispose managed state (managed objects)
-            }
-
-            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-            // TODO: set large fields to null
-            disposedValue = true;
-        }
-    }
-
-    // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
-    // ~MessageBroker()
-    // {
-    //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-    //     Dispose(disposing: false);
-    // }
-
-    public void Dispose()
-    {
-        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-        Dispose(disposing: true);
-        GC.SuppressFinalize(this);
     }
 }

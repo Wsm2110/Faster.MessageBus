@@ -8,7 +8,7 @@ namespace Faster.MessageBus.Shared;
 /// <summary>
 /// Represents the Local endpoint in the mesh network, including its bound RPC and PUB sockets.
 /// </summary>
-public class LocalEndpoint
+public class Mesh
 {
     public ulong MeshId = new WyRandom((ulong)Environment.TickCount).NextInt64();
     public ushort PubPort { get; internal set; }
@@ -17,10 +17,12 @@ public class LocalEndpoint
     public string ApplicationName { get; internal set; } = "Unknown";
     public string ClusterName { get; set; }
 
+    public ulong[] CommandRoutingTable { get; set; }
+
     /// <summary>
     /// Initializes and binds the Local RPC and PUB sockets to available ports.
     /// </summary>
-    public LocalEndpoint(IOptions<MessageBrokerOptions> options)
+    public Mesh(IOptions<MessageBrokerOptions> options)
     {
         // Example values
         string appId = options.Value.ApplicationName;
@@ -77,7 +79,7 @@ public class LocalEndpoint
         return "127.0.0.1";
     }
 
-    internal MeshInfo GetMesh(bool self = false)
+    internal MeshInfo GetMeshInfo(bool self = false)
     {
         return new MeshInfo
         {

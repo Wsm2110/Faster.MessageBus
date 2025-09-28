@@ -13,7 +13,7 @@ internal class CommandHandlerAssemblyScanner : ICommandAssemblyScanner
     /// to scan assemblies concurrently and is resilient to assembly load errors.
     /// </summary>
     /// <returns>A collection of (command type, response type) pairs. ResponseType is null for commands without a response.</returns>
-    public IEnumerable<(Type messageType, Type responseType)> FindAllCommands()
+    public IEnumerable<(Type messageType, Type responseType)> ScanForCommands()
     {
         // Cache the generic type definitions outside the parallel query to avoid repeated lookups.
         var commandHandlerWithResponse = typeof(ICommandHandler<,>);

@@ -1,134 +1,98 @@
 ﻿using Faster.MessageBus.Contracts;
-using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using System.Buffers;
+using System.Reflection;
 
 namespace Faster.MessageBus.Features.Commands;
 
 /// <summary>
 /// Manages and dispatches command handlers.
-/// This class scans for command types, registers them, and provides a mechanism to retrieve and execute the correct handler for a given command.
 /// </summary>
 internal class CommandMessageHandler : ICommandMessageHandler
 {
-    /// <summary>
-    /// A dictionary mapping a topic hash to a handler function.
-    /// The function takes a service provider, a serializer, and the payload, and returns the serialized response.
-    /// </summary>
+    #region Fields
+
+    // Caching MethodInfo in static fields is efficient; reflection lookup occurs only once.
+    private static readonly MethodInfo CreateHandlerMethod =
+        typeof(CommandMessageHandler).GetMethod(nameof(CreateHandlerForCommand), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    private static readonly MethodInfo CreateHandlerWithResponseMethod =
+        typeof(CommandMessageHandler).GetMethod(nameof(CreateHandlerForCommandWithResponse), BindingFlags.NonPublic | BindingFlags.Static)!;
+
     private readonly Dictionary<ulong, Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>>> _commandHandlers = new();
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="CommandMessageHandler"/> class.
-    /// It scans the provided assemblies for types implementing <see cref="ICommand"/> or <see cref="ICommand{TResponse}"/>
-    /// and registers them as handlers.
-    /// </summary>
-    /// <param name="commandAssemblyScanner">The scanner used to find command types in assemblies.</param>
-    public CommandMessageHandler(ICommandAssemblyScanner commandAssemblyScanner)
+    #endregion
+
+
+    public void Initialize(IEnumerable<(Type messageType, Type responseType)> commandTypes)
     {
-        // Find all command and their optional response types from the assemblies.
-        var commandTypes = commandAssemblyScanner.FindAllCommands();
-
-        // Get MethodInfo for the generic handler registration methods using reflection.
-        var addMethod = typeof(CommandMessageHandler)
-            .GetMethod(nameof(AddCommandHandler))!;
-
-        var addMethodResponse = typeof(CommandMessageHandler)
-          .GetMethod(nameof(AddCommandHandlerWithResponse))!;
-
-        // Iterate over the discovered command types and register a handler for each.
-        foreach (var (messageType, responseType) in commandTypes)
+        foreach (var (commandType, responseType) in commandTypes)
         {
-            // Register handlers for commands without a response.
-            if (responseType == null)
-            {
-                // Create a generic method instance for the specific command type.
-                var genericMethod = addMethod.MakeGenericMethod(messageType);
-
-                // By convention, use the hashed message type's name as the topic.
-                // This could be made more flexible, e.g., by using a custom attribute on the message class.
-                genericMethod.Invoke(this, new object[]
-                {
-                    WyHash.Hash(messageType.Name)
-                });
-                continue;
-            }
-
-            // Register handlers for commands with a response.
-            var genericMethodResponse = addMethodResponse.MakeGenericMethod(messageType, responseType);
-
-            // By convention, use the hashed message type's name as the topic.
-            genericMethodResponse.Invoke(this, new object[]
-            {
-                   WyHash.Hash(messageType.Name)
-            });
+            RegisterHandler(commandType, responseType);
         }
-    }
-
-    /// <summary>
-    /// Adds a handler for a command that does not return a response.
-    /// </summary>
-    /// <typeparam name="TCommand">The type of the command, which must implement <see cref="ICommand"/>.</typeparam>
-    /// <param name="topic">The unique identifier (hash) for the command topic.</param>
-    public void AddCommandHandler<TCommand>(ulong topic) where TCommand : ICommand
-    {
-        _commandHandlers[topic] = async static (serviceProvider, serializer, payload) =>
-        {
-            // Resolve the specific command handler from the dependency injection container.
-            var handler = serviceProvider.GetService(typeof(ICommandHandler<TCommand>)) as ICommandHandler<TCommand>;
-            if (handler == null)
-            {
-                throw new InvalidOperationException($"No handler registered for {typeof(TCommand)}");
-            }
-
-            // Deserialize the payload into the command object.
-            var message = (TCommand)serializer.Deserialize<ICommand>(payload);
-
-            // Execute the handler.
-            await handler.Handle(message, CancellationToken.None);
-
-            // Return an empty byte array as there is no response.
-            return Array.Empty<byte>();
-        };
-    }
-
-    /// <summary>
-    /// Adds a handler for a command that returns a response.
-    /// </summary>
-    /// <typeparam name="TCommand">The type of the command, which must implement <see cref="ICommand{TResponse}"/>.</typeparam>
-    /// <typeparam name="TResponse">The type of the response.</typeparam>
-    /// <param name="topic">The unique identifier (hash) for the command topic.</param>
-    public void AddCommandHandlerWithResponse<TCommand, TResponse>(ulong topic) where TCommand : ICommand<TResponse>
-    {
-        _commandHandlers[topic] = async static (serviceProvider, serializer, payload) =>
-        {
-            // Resolve the specific command handler from the dependency injection container.
-            var handler = serviceProvider.GetService(typeof(ICommandHandler<TCommand, TResponse>)) as ICommandHandler<TCommand, TResponse>;
-            if (handler == null)
-            {
-                throw new InvalidOperationException($"No handler registered for {typeof(TCommand)}");
-            }
-
-            // Deserialize the payload into the command object.
-            var message = (TCommand)serializer.Deserialize<ICommand<TResponse>>(payload);
-
-            // Execute the handler and get the result.
-            var result = await handler.Handle(message, CancellationToken.None);
-
-            // Serialize the result and return it.
-            return serializer.Serialize(result);
-        };
     }
 
     /// <summary>
     /// Retrieves the handler function for a specific topic.
     /// </summary>
-    /// <param name="topic">The unique identifier for the command topic.</param>
-    /// <returns>A function that, when executed, processes the command and returns a serialized response.</returns>
     public Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> GetHandler(ulong topic)
     {
-        _commandHandlers.TryGetValue(topic, out var x);
-        // TODO LOG when x is null
-        return x;
+        if (!_commandHandlers.TryGetValue(topic, out var handler))
+        {
+            throw new KeyNotFoundException($"No command handler registered for topic hash '{topic}'.");
+        }
+        return handler;
     }
 
+    /// <summary>
+    /// Uses reflection to create and register a single command handler delegate.
+    /// </summary>
+    private void RegisterHandler(Type commandType, Type? responseType)
+    {
+        var topic = GetTopicForType(commandType);
+
+        // Select the appropriate factory method and generic type arguments based on whether there's a response.
+        bool hasResponse = responseType != null;
+        var factoryMethod = hasResponse ? CreateHandlerWithResponseMethod : CreateHandlerMethod;
+        var genericTypes = hasResponse ? new[] { commandType, responseType! } : new[] { commandType };
+
+        // Create the specific generic method (e.g., CreateHandlerForCommand<MyCommand>).
+        var genericFactory = factoryMethod.MakeGenericMethod(genericTypes);
+
+        // Invoke the static factory to create the handler delegate.
+        var handlerDelegate = (Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>>)genericFactory.Invoke(null, null)!;
+
+        // Add the compiled delegate to the dictionary.
+        _commandHandlers[topic] = handlerDelegate;
+    }
+
+    // This section remains unchanged from the previous refactor.
+    #region Handler Factory Methods
+
+    private static Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> CreateHandlerForCommand<TCommand>() where TCommand : ICommand
+    {
+        return async static (serviceProvider, serializer, payload) =>
+        {
+            var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand>>();
+            var command = serializer.Deserialize<TCommand>(payload);
+            await handler.Handle(command, CancellationToken.None);
+            return Array.Empty<byte>();
+        };
+    }
+
+    private static Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> CreateHandlerForCommandWithResponse<TCommand, TResponse>() where TCommand : ICommand<TResponse>
+    {
+        return async static (serviceProvider, serializer, payload) =>
+        {
+            var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand, TResponse>>();
+            var command = serializer.Deserialize<TCommand>(payload);
+            var result = await handler.Handle(command, CancellationToken.None);
+            return serializer.Serialize(result);
+        };
+    }
+
+    private static ulong GetTopicForType(Type type) => WyHash.Hash(type.Name);
+
+    #endregion
 }

@@ -76,7 +76,7 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
         IEventAggregator eventAggregator,
         ICommandReplyHandler commandReplyHandler,
         IOptions<MessageBrokerOptions> options,
-        LocalEndpoint localEndpoint)
+        Mesh localEndpoint)
     {
         _eventAggregator = eventAggregator;
         _handler = commandReplyHandler;

@@ -73,7 +73,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     /// <param name="eventReceivedHandler">The handler for incoming event messages.</param>
     /// <param name="options">The application configuration options.</param>
     public EventSocketManager(
-        LocalEndpoint endpoint,
+        Mesh endpoint,
         IEventAggregator eventAggregator,
         IEventScheduler eventScheduler,
         IEventHandlerProvider eventHandlerProvider,

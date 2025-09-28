@@ -16,5 +16,5 @@ public interface ICommandAssemblyScanner
     /// Discovers message _replyHandler types that implement IRequestHandlerProvider<TNotification, TResponse> and returns a list of them.
     /// </summary>
     /// <returns>A list of tuples containing the message type and response type for each discovered _replyHandler.</returns>
-    IEnumerable<(Type messageType, Type responseType)> FindAllCommands();      
+    IEnumerable<(Type messageType, Type responseType)> ScanForCommands();      
 }

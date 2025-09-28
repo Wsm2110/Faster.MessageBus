@@ -12,13 +12,13 @@ internal class CommandServiceInstaller : IServiceInstaller
         // Register and configure MeshMQ _options
         serviceCollection.Configure<MessageBrokerOptions>(options => { });
 
-        serviceCollection.AddSingleton<LocalEndpoint>();
+        serviceCollection.AddSingleton<Mesh>();
         serviceCollection.AddSingleton<CommandServer>();
 
         serviceCollection.AddSingleton<ICommandMessageHandler, CommandMessageHandler>();
         serviceCollection.AddSingleton<ICommandAssemblyScanner, CommandHandlerAssemblyScanner>();
+        serviceCollection.AddSingleton<ICommandRoutingFilter, CommandRoutingFilter>();
 
-    
         serviceCollection.AddSingleton<ICommandSerializer, CommandSerializer>();
         serviceCollection.AddSingleton<ICommandReplyHandler, CommandReplyHandler>();
 

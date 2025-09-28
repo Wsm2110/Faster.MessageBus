@@ -60,11 +60,7 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
         (_clusterScope, Cluster) = CreateClusterScope(provider);
 
         // Create the network scope for WAN communication
-        (_networkScope, Network) = CreateNetworkScope(provider);
-
-        // initialize startup classes
-        var startup = provider.GetRequiredService<Ilifetime>();
-        startup.Initialize();
+        (_networkScope, Network) = CreateNetworkScope(provider);    
     }
 
     /// <summary>

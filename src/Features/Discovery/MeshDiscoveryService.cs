@@ -28,7 +28,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     /// <summary>
     /// Provides the details of the local node's endpoint to be advertised.
     /// </summary>
-    private readonly LocalEndpoint _endpoint;
+    private readonly Mesh _endpoint;
 
     /// <summary>
     /// The underlying NetMQ beacon used for UDP broadcast and discovery.
@@ -57,7 +57,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     public MeshDiscoveryService(IMeshRepository provider,
         IEventAggregator eventAggregator,
         IOptions<MessageBrokerOptions> options, 
-        LocalEndpoint endpoint, int port = 9100)
+        Mesh endpoint, int port = 9100)
     {
         _storage = provider;
         _eventAggregator = eventAggregator;
@@ -78,7 +78,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     public void Start(MeshInfo meshInfo)
     {       
         // Publish this node's identity for others to discover.
-        _beacon.Publish(MessagePackSerializer.Serialize(meshInfo), TimeSpan.FromMilliseconds(250));
+        _beacon.Publish(MessagePackSerializer.Serialize(meshInfo), TimeSpan.FromMilliseconds(1000));
         _poller.RunAsync();
     }
 

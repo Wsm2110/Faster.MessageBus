@@ -46,14 +46,5 @@ public interface IMessageBroker
     /// Gets the dispatcher for publishing events using the publish-subscribe pattern.
     /// </summary>
     /// <value>The <see cref="IEventDispatcher"/> implementation.</value>
-    IEventDispatcher EventDispatcher { get; }
-
-    // Note: It's somewhat unconventional for a primary API contract like this to also be an IServiceInstaller.
-    // Usually, the installation logic is kept separate. This documentation reflects the interface as provided.
-
-    /// <summary>
-    /// Registers the necessary services for the message bus with the dependency injection container.
-    /// </summary>
-    /// <param name="serviceCollection">The <see cref="IServiceCollection"/> to add service registrations to.</param>
-    void Install(IServiceCollection serviceCollection);
+    IEventDispatcher EventDispatcher { get; }   
 }

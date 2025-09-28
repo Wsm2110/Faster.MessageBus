@@ -26,6 +26,9 @@ public record struct MeshInfo()
     [property: Key(6)]
     public ulong MeshId { get; set; }
 
+    [property: Key(7)]
+    public ulong[] CommandRoutingTable{ get; set; }
+
     [IgnoreMember]
     public bool Self { get; set; }
 
