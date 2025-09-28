@@ -2,9 +2,6 @@
 using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Features.Events.Shared;
-using Faster.MessageBus.Shared;
-using Microsoft.Extensions.DependencyInjection;
-using System.Runtime.InteropServices;
 
 namespace Faster.MessageBus.Features.Events;
 
@@ -26,8 +23,7 @@ public class EventDispatcher : IEventDispatcher
     /// <param name="scheduler">Queues events for transmission on a dedicated thread.</param>
     /// <param name="serializer">Serializes event objects into binary format.</param>
     /// <param name="socketManager">Manages network sockets for publishing events.</param>
-    public EventDispatcher(
-        IServiceProvider provider,
+    public EventDispatcher( 
         IEventScheduler scheduler,
         IEventSerializer serializer,
         IEventSocketManager socketManager)

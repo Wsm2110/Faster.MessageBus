@@ -24,6 +24,35 @@ public class CommandScope(
     private readonly ArrayPoolBufferWriter<byte> _writer = new();
 
     /// <summary>
+    /// Prepares a strongly-typed command for dispatch, returning a scope builder
+    /// that allows configuration of timeouts, cancellation, and scatter-gather response streaming.
+    /// </summary>
+    /// <typeparam name="TResponse">The type of the expected response from the command.</typeparam>
+    /// <param name="command">The command to be dispatched.</param>
+    /// <returns>
+    /// An <see cref="ICommandScopeBuilder{TResponse}"/> that provides a fluent API for configuring
+    /// and sending the command.
+    /// </returns>
+    public ICommandScopeBuilder<TResponse> Prepare<TResponse>(ICommand<TResponse> command)
+    {
+        return new CommandScopeBuilder<TResponse>(this, command);
+    }
+
+    /// <summary>
+    /// Prepares command for dispatch, returning a scope builder
+    /// that allows configuration of timeouts and cancellation.
+    /// </summary>
+    /// <param name="command">The command to be dispatched.</param>
+    /// <returns>
+    /// An <see cref="ICommandScopeBuilder"/> that provides a fluent API for configuring
+    /// and sending the command without expecting a response.
+    /// </returns>
+    public ICommandScopeBuilder Prepare(ICommand command)
+    {
+        return new CommandScopeBuilder(this, command);
+    }
+
+    /// <summary>
     /// Sends a command to all listening endpoints on the local machine and returns an
     /// asynchronous stream of their successful responses.
     /// </summary>
@@ -70,7 +99,7 @@ public class CommandScope(
         TimeSpan timeout = default,
         Action<Exception, MeshContext>? OnTimeout = default,
         [EnumeratorCancellation] CancellationToken ct = default)
-    {  
+    {
         // Scatter the command and get the context for the pending replies.
         using var context = Scatter(command, timeout, ct);
         if (context.RequestCount == 0)
@@ -158,8 +187,8 @@ public class CommandScope(
             }
             catch (OperationCanceledException e)
             {
-                OnTimeout?.Invoke(e, pending.Target);              
-            }         
+                OnTimeout?.Invoke(e, pending.Target);
+            }
             finally
             {
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
@@ -297,14 +326,14 @@ public class CommandScope(
 
         // Get eligible sockets (up to 'count') for this topic
         var sockets = commandProcessor.Get(count, topic);
-  
+
         // Rent an array from a pool to store pending replies, avoiding allocations.
         var requests = ArrayPool<PendingReply<byte[]>>.Shared.Rent(count);
 
         // Serialize the command into a pooled buffer writer to avoid heap allocations.
         _writer.Clear(); // Ensure writer is clear before serializing
         serializer.Serialize(command, _writer);
-            
+
         int requestIndex = 0;
         // Iterate over the available sockets (or endpoints).
         foreach (var socketinfo in sockets)

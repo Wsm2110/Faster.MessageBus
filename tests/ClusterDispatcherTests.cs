@@ -38,7 +38,7 @@ public class ClusterDispatcherTests
 
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
-        await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(20)))
+        await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(10)))
         {
             ++count;
         }

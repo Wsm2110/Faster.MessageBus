@@ -1,7 +1,6 @@
 ﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
-using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands.Contracts;
 
@@ -12,6 +11,29 @@ namespace Faster.MessageBus.Features.Commands.Contracts;
 /// </summary>
 public interface ICommandScope
 {
+    /// <summary>
+    /// Prepares command for dispatch, returning a scope builder
+    /// that allows configuration of timeouts and cancellation.
+    /// </summary>
+    /// <param name="command">The command to be dispatched.</param>
+    /// <returns>
+    /// An <see cref="ICommandScopeBuilder"/> that provides a fluent API for configuring
+    /// and sending the command without expecting a response.
+    /// </returns>
+    ICommandScopeBuilder Prepare(ICommand command);
+
+    /// <summary>
+    /// Prepares a strongly-typed command for dispatch, returning a scope builder
+    /// that allows configuration of timeouts, cancellation, and scatter-gather response streaming.
+    /// </summary>
+    /// <typeparam name="TResponse">The type of the expected response from the command.</typeparam>
+    /// <param name="command">The command to be dispatched.</param>
+    /// <returns>
+    /// An <see cref="ICommandScopeBuilder{TResponse}"/> that provides a fluent API for configuring
+    /// and sending the command.
+    /// </returns>
+    ICommandScopeBuilder<TResponse> Prepare<TResponse>(ICommand<TResponse> command);
+
     /// <summary>
     /// Sends a command to all listening endpoints on the local machine and returns an
     /// asynchronous stream of their successful responses.
@@ -104,4 +126,5 @@ public interface ICommandScope
     /// or the operation times out.
     /// </returns>
     Task SendAsync(ICommand command, TimeSpan timeout = default, Action<Exception, MeshContext>? OnException = default, CancellationToken ct = default);
+
 }
