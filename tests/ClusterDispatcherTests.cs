@@ -6,7 +6,8 @@ using System.Threading.Tasks;
 using System;
 using System.Threading;
 using Faster.MessageBus.Features.Commands.Shared;
-namespace ClusterTests;
+
+namespace UnitTests;
 
 public class ClusterDispatcherTests
 {

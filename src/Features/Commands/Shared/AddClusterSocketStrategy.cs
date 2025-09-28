@@ -6,7 +6,7 @@ namespace Faster.MessageBus.Features.Commands.Scope.Cluster
 {
     internal class AddClusterSocketStrategy : ISocketStrategy
     {
-        public bool Validate(MeshInfo info, IOptions<MessageBrokerOptions> options)
+        public bool Validate(MeshContext info, IOptions<MessageBrokerOptions> options)
         {
             if (info.Self)
             {

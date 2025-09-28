@@ -4,16 +4,16 @@ using NetMQ;
 namespace Faster.MessageBus.Features.Discovery.Contracts;
 
 /// <summary>
-/// Represents a discovery service that listens for and broadcasts node information (MeshInfo)
+/// Represents a discovery service that listens for and broadcasts node information (MeshContext)
 /// over the network, typically using a mechanism like the NetMQ beacon for peer discovery.
 /// </summary>
 public interface IMeshDiscoveryService : IDisposable
 {
     /// <summary>
-    /// Starts the discovery service. This begins broadcasting the local node's MeshInfo
+    /// Starts the discovery service. This begins broadcasting the local node's MeshContext
     /// and listening for beacons from other nodes on the network.
     /// </summary>
-    void Start(MeshInfo info);
+    void Start(MeshContext info);
 
     /// <summary>
     /// Stops the discovery service. This ceases broadcasting and listening for beacons.
@@ -29,7 +29,7 @@ public interface IMeshDiscoveryService : IDisposable
     /// dead or unreachable nodes from the cluster's membership list.
     /// </remarks>
     /// <returns>
-    /// An enumerable collection of <see cref="MeshInfo"/> objects for each node that is no longer active.
+    /// An enumerable collection of <see cref="MeshContext"/> objects for each node that is no longer active.
     /// </returns>
     void RemoveInactiveApplications(object? sender, NetMQTimerEventArgs args);
 }

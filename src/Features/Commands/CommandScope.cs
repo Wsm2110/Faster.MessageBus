@@ -23,8 +23,6 @@ public class CommandScope(
     private readonly ElasticPool _pendingReplyPool = new();
     private readonly ArrayPoolBufferWriter<byte> _writer = new();
 
-    public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(1);
-
     /// <summary>
     /// Sends a command to all listening endpoints on the local machine and returns an
     /// asynchronous stream of their successful responses.
@@ -70,14 +68,9 @@ public class CommandScope(
     public async IAsyncEnumerable<TResponse> StreamAsync<TResponse>(
         ICommand<TResponse> command,
         TimeSpan timeout = default,
-        Action<Exception, MeshInfo>? OnTimeout = default,
+        Action<Exception, MeshContext>? OnTimeout = default,
         [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        if (timeout == default)
-        {
-            timeout = DefaultTimeout;
-        }
-
+    {  
         // Scatter the command and get the context for the pending replies.
         using var context = Scatter(command, timeout, ct);
         if (context.RequestCount == 0)
@@ -146,7 +139,7 @@ public class CommandScope(
     /// A <see cref="Task"/> that completes when all endpoints have acknowledged the command
     /// or the overall operation times out.
     /// </returns>
-    public async Task SendAsync(ICommand command, TimeSpan timeout, Action<Exception, MeshInfo>? OnTimeout = default, CancellationToken ct = default)
+    public async Task SendAsync(ICommand command, TimeSpan timeout, Action<Exception, MeshContext>? OnTimeout = default, CancellationToken ct = default)
     {
         // Scatter the command and get the context for the pending replies.
         using var context = Scatter(command, timeout, ct);
@@ -294,23 +287,24 @@ public class CommandScope(
     private ScatterContext Scatter<T>(T command, TimeSpan timeout, CancellationToken ct) where T : ICommand
     {
         var count = commandProcessor.Count;
-        var sockets = commandProcessor.Get(count);
-
         if (count == 0)
         {
             return ScatterContext.Empty;
         }
 
+        // Compute the topic hash for the command
+        var topic = WyHash.Hash(command.GetType().Name);
+
+        // Get eligible sockets (up to 'count') for this topic
+        var sockets = commandProcessor.Get(count, topic);
+  
         // Rent an array from a pool to store pending replies, avoiding allocations.
         var requests = ArrayPool<PendingReply<byte[]>>.Shared.Rent(count);
 
         // Serialize the command into a pooled buffer writer to avoid heap allocations.
         _writer.Clear(); // Ensure writer is clear before serializing
         serializer.Serialize(command, _writer);
-
-        // Get the pre-calculated, cached topic hash for efficient routing.
-        var topic = WyHash.Hash(command.GetType().Name);
-
+            
         int requestIndex = 0;
         // Iterate over the available sockets (or endpoints).
         foreach (var socketinfo in sockets)

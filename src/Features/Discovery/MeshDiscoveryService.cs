@@ -8,7 +8,7 @@ using NetMQ;
 namespace Faster.MessageBus.Features.Discovery;
 
 /// <summary>
-/// Implements a discovery service using <see cref="NetMQBeacon"/> to advertise and listen for <see cref="MeshInfo"/> announcements on the local network.
+/// Implements a discovery service using <see cref="NetMQBeacon"/> to advertise and listen for <see cref="MeshContext"/> announcements on the local network.
 /// </summary>
 internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
 {
@@ -28,7 +28,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     /// <summary>
     /// Provides the details of the local node's endpoint to be advertised.
     /// </summary>
-    private readonly Mesh _endpoint;
+    private readonly MeshApplication _endpoint;
 
     /// <summary>
     /// The underlying NetMQ beacon used for UDP broadcast and discovery.
@@ -57,7 +57,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     public MeshDiscoveryService(IMeshRepository provider,
         IEventAggregator eventAggregator,
         IOptions<MessageBrokerOptions> options, 
-        Mesh endpoint, int port = 9100)
+        MeshApplication endpoint, int port = 9100)
     {
         _storage = provider;
         _eventAggregator = eventAggregator;
@@ -75,7 +75,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     /// <summary>
     /// Starts the discovery service by publishing the local node's information and running the background poller to listen for other nodes.
     /// </summary>
-    public void Start(MeshInfo meshInfo)
+    public void Start(MeshContext meshInfo)
     {       
         // Publish this node's identity for others to discover.
         _beacon.Publish(MessagePackSerializer.Serialize(meshInfo), TimeSpan.FromMilliseconds(1000));
@@ -95,7 +95,7 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     }
 
     /// <summary>
-    /// Handles received beacon signals, deserializes the <see cref="MeshInfo"/>, and updates the mesh provider.
+    /// Handles received beacon signals, deserializes the <see cref="MeshContext"/>, and updates the mesh provider.
     /// This method is executed on the poller's thread.
     /// </summary>
     /// <param name="sender">The sender of the event (the <see cref="NetMQBeacon"/>).</param>
@@ -109,8 +109,8 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
                 return;
             }
 
-            // Deserialize the received payload into MeshInfo and update its LastSeen timestamp.
-            var info = MessagePackSerializer.Deserialize<MeshInfo>(payload.Bytes);
+            // Deserialize the received payload into MeshContext and update its LastSeen timestamp.
+            var info = MessagePackSerializer.Deserialize<MeshContext>(payload.Bytes);
             var updated = info with { LastSeen = DateTime.UtcNow };
 
             // If the node is new, add it and publish a MeshJoined event. Otherwise, update its state.

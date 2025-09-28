@@ -35,5 +35,7 @@
         /// </summary>
         /// <param name="preHash">The precomputed 64-bit hash of the element.</param>
         void Add(ulong preHash);
+
+        byte[] GetMembershipTable();
     }
 }

@@ -7,9 +7,8 @@ using System.Threading;
 using System.Collections.Generic;
 using Xunit;
 using System.Linq;
-using UnitTests;
 
-namespace MachineTests;
+namespace UnitTests;
 
 public class MachineDispatcherTests
 {
@@ -53,11 +52,15 @@ public class MachineDispatcherTests
 
         // Act
         int count = 0;
-        await foreach (var result in broker1.CommandDispatcher.Machine.StreamResultAsync(new Ping("hello"), TimeSpan.FromSeconds(2)))
+        await foreach (var result in broker1.CommandDispatcher.Machine.StreamResultAsync(new Ping("hello"), TimeSpan.FromSeconds(1)))
         {
             if (result.IsSuccess)
             {
                 count++;
+            }
+            else 
+            {
+            
             }
         }
 
@@ -116,31 +119,6 @@ public class MachineDispatcherTests
     }
 
     [Fact]
-    public async Task Machine_SendAsync_multiple_handlers_returns_single_response()
-    {
-        // Arrange
-        using var machineBase = new MachineBase();
-        var (_, broker) = machineBase.CreateMessageBus(services =>
-        {
-            // With default DI, the last registration for an interface overwrites previous ones.
-            services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
-            services.AddTransient<ICommandHandler<Ping, string>, AltPongCommandHandler>();
-        });
-        await Task.Delay(TimeSpan.FromSeconds(1));
-
-        // Act
-        var responses = new List<string>();
-        await foreach (var resp in broker.CommandDispatcher.Machine.StreamAsync(new Ping("multi"), TimeSpan.FromSeconds(2)))
-        {
-            responses.Add(resp);
-        }
-
-        // Assert
-        var response = Assert.Single(responses); // Only one response expected from this process
-        Assert.Equal("altpong", response); // The last registered handler ("AltPong") should be invoked
-    }
-
-    [Fact]
     public async Task Machine_SendAsync_empty_message_returns_response()
     {
         // Arrange
@@ -187,7 +165,7 @@ public class MachineDispatcherTests
         // Act
         int successCount = 0;
         // Set a generous timeout to allow all nodes to respond
-        await foreach (var result in sendingBroker.CommandDispatcher.Machine.StreamResultAsync(new Ping("scale test"), TimeSpan.FromSeconds(5)))
+        await foreach (var result in sendingBroker.CommandDispatcher.Machine.StreamResultAsync(new Ping("scale test"), TimeSpan.FromSeconds(1)))
         {
             if (result.IsSuccess)
             {

@@ -29,9 +29,9 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     private readonly struct SocketCommand
     {
         public readonly CommandType Type;
-        public readonly MeshInfo MeshInfo;
+        public readonly MeshContext MeshInfo;
 
-        public SocketCommand(CommandType type, MeshInfo meshInfo)
+        public SocketCommand(CommandType type, MeshContext meshInfo)
         {
             Type = type;
             MeshInfo = meshInfo;
@@ -50,14 +50,15 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
 
     #region Fields
 
-    private readonly ConcurrentDictionary<ulong, (MeshInfo Info, DealerSocket Socket)> _sockets = new();
+    private readonly ConcurrentDictionary<ulong, (MeshContext Info, DealerSocket Socket)> _sockets = new();
     private readonly IEventAggregator _eventAggregator;
     private readonly ICommandReplyHandler _handler;
     private readonly IOptions<MessageBrokerOptions> _options;
     private readonly Action<MeshJoined> _onMeshJoined;
     private readonly Action<MeshRemoved> _onMeshRemoved;
-    private ISocketStrategy _socketStrategy;
+    private ISocketStrategy? _socketStrategy;
     private bool _disposed;
+
     #endregion
 
     /// <summary>
@@ -70,13 +71,11 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     /// </summary>
     /// <param name="eventAggregator">The event aggregator for subscribing to mesh lifecycle events.</param>
     /// <param name="commandReplyHandler">The handler for processing replies from sockets.</param>
-    /// <param name="options">Configuration options for the message broker.</param>
-    /// <param name="localEndpoint">Information about the local endpoint.</param>
+    /// <param name="options">Configuration options for the message broker.</param>  
     public CommandProcessor(
         IEventAggregator eventAggregator,
         ICommandReplyHandler commandReplyHandler,
-        IOptions<MessageBrokerOptions> options,
-        Mesh localEndpoint)
+        IOptions<MessageBrokerOptions> options)
     {
         _eventAggregator = eventAggregator;
         _handler = commandReplyHandler;
@@ -101,17 +100,38 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     #region Public API
 
     /// <summary>
-    /// Returns an enumerable collection of managed sockets, up to the specified count.
+    /// Returns an enumerable collection of managed sockets that are eligible for the given topic, up to the specified count.
     /// </summary>
-    /// <param name="count">The maximum number of sockets to return.</param>
-    /// <returns>An <see cref="IEnumerable{T}"/> of tuples containing the mesh ID and the corresponding <see cref="DealerSocket"/>.</returns>
-    public IEnumerable<(ulong Id, (MeshInfo Info, DealerSocket Socket))> Get(int count)
+    /// <param name="count">The maximum number of sockets to return. Enumeration stops once this count is reached.</param>
+    /// <param name="topic">The topic hash used to filter sockets based on their command routing table.</param>
+    /// <returns>
+    /// An <see cref="IEnumerable{T}"/> of tuples:
+    /// - <c>Id</c>: The unique mesh ID of the socket.
+    /// - <c>Info</c>: The <see cref="MeshContext"/> containing routing and metadata.
+    /// - <c>Socket</c>: The actual <see cref="DealerSocket"/> instance associated with the mesh ID.
+    /// </returns>
+    /// <remarks>
+    /// This method filters sockets using the <see cref="CommandRoutingFilter"/> associated with each socket. 
+    /// Only sockets whose routing table contains the specified <paramref name="topic"/> are returned.
+    /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
+    /// </remarks>
+    public IEnumerable<(ulong Id, (MeshContext Info, DealerSocket Socket))> Get(int count, ulong topic)
     {
         int i = 0;
         foreach (var pair in _sockets)
         {
-            if (i++ >= count) break;
-            yield return (pair.Key, (pair.Value.Info, pair.Value.Socket));
+            if (i++ >= count)
+            {
+                break; // Stop enumeration once the requested count is reached
+            }
+
+            var socketInfo = pair.Value.Info;
+
+            // Only yield sockets that contain the topic in their command routing table
+            if (CommandRoutingFilter.TryContains(socketInfo.CommandRoutingTable, topic))
+            {
+                yield return (pair.Key, (socketInfo, pair.Value.Socket));
+            }
         }
     }
 
@@ -120,14 +140,14 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     /// The operation is performed on the internal worker thread.
     /// </summary>
     /// <param name="info">The mesh node information used to configure the new socket.</param>
-    public void AddSocket(MeshInfo info) => _socketManagerQueue.Enqueue(new SocketCommand(CommandType.AddSocket, info));
+    public void AddSocket(MeshContext info) => _socketManagerQueue.Enqueue(new SocketCommand(CommandType.AddSocket, info));
 
     /// <summary>
     /// Asynchronously schedules the removal and disposal of the socket for a specified mesh node.
     /// The operation is performed on the internal worker thread.
     /// </summary>
     /// <param name="meshInfo">The mesh node information identifying which socket to remove.</param>
-    public void RemoveSocket(MeshInfo meshInfo) => _socketManagerQueue.Enqueue(new SocketCommand(CommandType.RemoveSocket, meshInfo));
+    public void RemoveSocket(MeshContext meshInfo) => _socketManagerQueue.Enqueue(new SocketCommand(CommandType.RemoveSocket, meshInfo));
 
     /// <summary>
     /// Sets the strategy used to validate whether a socket should be created for a given mesh node.
@@ -187,7 +207,7 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     /// <summary>
     /// Handles the logic for creating and adding a new socket. Must run on the poller thread.
     /// </summary>
-    private void HandleAddSocket(MeshInfo info)
+    private void HandleAddSocket(MeshContext info)
     {
         if (_poller.IsDisposed || _sockets.ContainsKey(info.MeshId))
         {
@@ -215,7 +235,7 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     /// <summary>
     /// Handles the logic for removing and disposing of a socket. Must run on the poller thread.
     /// </summary>
-    private void HandleRemoveSocket(MeshInfo meshInfo)
+    private void HandleRemoveSocket(MeshContext meshInfo)
     {
         if (_sockets.TryRemove(meshInfo.MeshId, out var socketInfo))
         {

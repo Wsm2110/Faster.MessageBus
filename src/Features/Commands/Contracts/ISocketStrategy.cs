@@ -5,7 +5,7 @@ namespace Faster.MessageBus.Features.Commands.Contracts
 {
     public interface ISocketStrategy
     {
-        public bool Validate(MeshInfo info, IOptions<MessageBrokerOptions> options);
+        public bool Validate(MeshContext info, IOptions<MessageBrokerOptions> options);
 
     }
 }

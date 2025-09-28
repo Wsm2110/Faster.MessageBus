@@ -73,7 +73,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     /// <param name="eventReceivedHandler">The handler for incoming event messages.</param>
     /// <param name="options">The application configuration options.</param>
     public EventSocketManager(
-        Mesh endpoint,
+        MeshApplication endpoint,
         IEventAggregator eventAggregator,
         IEventScheduler eventScheduler,
         IEventHandlerProvider eventHandlerProvider,
@@ -107,7 +107,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
         PublisherSocket.Options.SendBuffer = 1024 * 1024;         // Set OS send buffer size to 1MB
 
         // Find an available TCP port and bind the publisher socket to it.
-        var port = PortFinder.FindAndBindPortWithMutex(options.Value.PublishPort, (ushort)(options.Value.PublishPort + 200), port => PublisherSocket.Bind($"tcp://*:{port}"));
+        var port = PortFinder.BindPort(options.Value.PublishPort, (ushort)(options.Value.PublishPort + 200), port => PublisherSocket.Bind($"tcp://*:{port}"));
 
         Console.WriteLine($"Publisher socket bound to tcp://*:{port}");
 
@@ -120,7 +120,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     /// This entire operation is scheduled on a dedicated thread to ensure thread safety.
     /// </summary>
     /// <param name="info">The mesh node information containing the address and port to connect to.</param>
-    public void AddSocket(MeshInfo info)
+    public void AddSocket(MeshContext info)
     {
         // Offload socket creation and configuration to the scheduler's thread.
         _scheduler.Invoke(poller =>
@@ -148,7 +148,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     /// This cleanup operation is scheduled on a dedicated thread for safety.
     /// </summary>
     /// <param name="meshInfo">The mesh node identifying which socket to remove.</param>
-    public void RemoveSocket(MeshInfo meshInfo)
+    public void RemoveSocket(MeshContext meshInfo)
     {
         // Offload socket removal to the scheduler's thread.
         _scheduler.Invoke(poller =>

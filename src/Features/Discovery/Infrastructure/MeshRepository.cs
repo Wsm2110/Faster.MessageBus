@@ -10,10 +10,10 @@ namespace Faster.MessageBus.Features.Discovery.Infrastructure
     internal class MeshRepository : IMeshRepository
     {
         // Internal dictionary storing discovered mesh nodes, keyed by their MeshId
-        private readonly Dictionary<ulong, MeshInfo> _discovered = new();
+        private readonly Dictionary<ulong, MeshContext> _discovered = new();
 
         /// <inheritdoc/>
-        public bool Add(MeshInfo info)
+        public bool Add(MeshContext info)
         {
             if (_discovered.ContainsKey(info.MeshId))
                 return false; // already exists
@@ -23,12 +23,12 @@ namespace Faster.MessageBus.Features.Discovery.Infrastructure
         }
 
         /// <inheritdoc/>
-        public bool Remove(MeshInfo info) => _discovered.Remove(info.MeshId);
+        public bool Remove(MeshContext info) => _discovered.Remove(info.MeshId);
 
         /// <inheritdoc/>
-        public void Update(MeshInfo info) => _discovered[info.MeshId] = info;
+        public void Update(MeshContext info) => _discovered[info.MeshId] = info;
 
         /// <inheritdoc/>
-        public IList<MeshInfo> All() => _discovered.Values.ToList();
+        public IList<MeshContext> All() => _discovered.Values.ToList();
     }
 }

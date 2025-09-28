@@ -50,7 +50,7 @@ public interface ICommandScope
     /// An asynchronous stream (<see cref="IAsyncEnumerable{TResponse}"/>) that yields each successful response
     /// of type <typeparamref name="TResponse"/> as it is received from an endpoint on the machine.
     /// </returns>
-    IAsyncEnumerable<TResponse> StreamAsync<TResponse>(ICommand<TResponse> command, TimeSpan timeout = default, Action<Exception, MeshInfo>? OnException = default, CancellationToken ct = default);
+    IAsyncEnumerable<TResponse> StreamAsync<TResponse>(ICommand<TResponse> command, TimeSpan timeout = default, Action<Exception, MeshContext>? OnException = default, CancellationToken ct = default);
 
     /// <summary>
     /// Sends the specified command asynchronously and returns an asynchronous sequence of results,
@@ -103,5 +103,5 @@ public interface ICommandScope
     /// A <see cref="Task"/> that completes when all endpoints have acknowledged the command
     /// or the operation times out.
     /// </returns>
-    Task SendAsync(ICommand command, TimeSpan timeout = default, Action<Exception, MeshInfo>? OnException = default, CancellationToken ct = default);
+    Task SendAsync(ICommand command, TimeSpan timeout = default, Action<Exception, MeshContext>? OnException = default, CancellationToken ct = default);
 }

@@ -64,7 +64,15 @@ internal class CommandMessageHandler : ICommandMessageHandler
         var handlerDelegate = (Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>>)genericFactory.Invoke(null, null)!;
 
         // Add the compiled delegate to the dictionary.
-        _commandHandlers[topic] = handlerDelegate;
+        if (!_commandHandlers.ContainsKey(topic))
+        {
+            _commandHandlers[topic] = handlerDelegate;
+        }
+        else
+        {
+            // Optionally, log or handle the duplicate registration attempt.
+            // For now, we simply ignore it to prevent overwriting existing handlers.
+        }
     }
 
     // This section remains unchanged from the previous refactor.
@@ -75,7 +83,7 @@ internal class CommandMessageHandler : ICommandMessageHandler
         return async static (serviceProvider, serializer, payload) =>
         {
             var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand>>();
-            var command = serializer.Deserialize<TCommand>(payload);
+            var command = (TCommand)serializer.Deserialize<ICommand>(payload);
             await handler.Handle(command, CancellationToken.None);
             return Array.Empty<byte>();
         };
@@ -84,11 +92,11 @@ internal class CommandMessageHandler : ICommandMessageHandler
     private static Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> CreateHandlerForCommandWithResponse<TCommand, TResponse>() where TCommand : ICommand<TResponse>
     {
         return async static (serviceProvider, serializer, payload) =>
-        {
-            var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand, TResponse>>();
-            var command = serializer.Deserialize<TCommand>(payload);
-            var result = await handler.Handle(command, CancellationToken.None);
-            return serializer.Serialize(result);
+        {         
+                var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand, TResponse>>();
+                var command = (TCommand)serializer.Deserialize<ICommand<TResponse>>(payload);
+                var result = await handler.Handle(command, CancellationToken.None);
+                return serializer.Serialize(result);         
         };
     }
 

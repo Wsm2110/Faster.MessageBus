@@ -44,12 +44,7 @@ public class CommandServer : IDisposable
     /// A flag to prevent redundant disposal.
     /// </summary>
     private bool _disposed;
-
-    /// <summary>
-    /// A pre-allocated empty byte array for use as a delimiter frame in NetMQ messages.
-    /// </summary>
-    private static readonly byte[] EmptyFrame = Array.Empty<byte>();
-
+ 
     /// <summary>
     /// Gets a string representation of a response, potentially for testing or debugging purposes.
     /// </summary>
@@ -59,15 +54,15 @@ public class CommandServer : IDisposable
     /// Initializes a new instance of the <see cref="CommandServer"/> class.
     /// </summary>
     /// <param name="messageHandler">The messageHandler that will handle the business logic for incoming commands.</param>
-    /// <param name="localMeshEndpoint">The Local endpoint configuration, including the port to bind the RPC server to.</param>
+    /// <param name="meshAplication">The Local endpoint configuration, including the port to bind the RPC server to.</param>
     public CommandServer(
         IOptions<MessageBrokerOptions> options,
         IServiceProvider serviceProvider,
         ICommandSerializer commandSerializer,
         ICommandMessageHandler messageHandler,
         IEventAggregator eventAggregator,
-        Mesh localMeshEndpoint)
-    {
+        MeshApplication meshAplication)
+    {     
         _serviceProvider = serviceProvider;
         _commandSerializer = commandSerializer;
         _messageHandler = messageHandler;
@@ -91,12 +86,10 @@ public class CommandServer : IDisposable
         _router.Options.SendBuffer = 1024 * 64;           // OS send buffer size
 
         // find random port in range of 10000 -12000
-        var port = PortFinder.FindAndBindPortWithMutex(options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
-        localMeshEndpoint.RpcPort = (ushort)port;
+        var port = PortFinder.BindPort(options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
+        meshAplication.RpcPort = (ushort)port;
 
-        eventAggregator.Publish(new MeshJoined(localMeshEndpoint.GetMeshInfo(true)));
-
-        Console.WriteLine($"ROuter socket bound to tcp://*:{port}");
+        Console.WriteLine($"Router socket bound to tcp://*:{port}");
 
         // Initialize the response queue and its callback.
         _receiveCommandQueue = new NetMQQueue<NetMQMessage>();

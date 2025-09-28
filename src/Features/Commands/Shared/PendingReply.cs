@@ -98,7 +98,7 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
         }
     }
 
-    public MeshInfo Target { get; internal set; }
+    public MeshContext Target { get; internal set; }
 
     /// <summary>
     /// Schedules the continuation action that will be invoked when the operation completes.

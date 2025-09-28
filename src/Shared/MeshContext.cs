@@ -3,13 +3,17 @@
 namespace Faster.MessageBus.Shared;
 
 [MessagePackObject]
-public record struct MeshInfo()
+public record struct MeshContext
 {
+    public MeshContext()
+    {
+    }
+
     [property: Key(0)]
-    public string ApplicationName { get; set; }
+    public string ApplicationName { get; set; } = string.Empty;
 
     [property: Key(1)]
-    public string WorkstationName { get; set; }
+    public string WorkstationName { get; set; } = string.Empty;
 
     [property: Key(2)]
     public string Address { get; set; }
@@ -21,13 +25,13 @@ public record struct MeshInfo()
     public ushort PubPort { get; set; }
 
     [property: Key(5)]
-    public string ClusterName { get; set; }
+    public string ClusterName { get; set; } = string.Empty;
 
     [property: Key(6)]
     public ulong MeshId { get; set; }
 
     [property: Key(7)]
-    public ulong[] CommandRoutingTable{ get; set; }
+    public byte[]? CommandRoutingTable { get; set; }
 
     [IgnoreMember]
     public bool Self { get; set; }
