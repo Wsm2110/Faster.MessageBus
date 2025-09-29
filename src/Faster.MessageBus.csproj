@@ -9,10 +9,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="xac5rbi5.2az~" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.HighPerformance" Version="8.4.0" />
     <PackageReference Include="MessagePack" Version="3.1.4" />
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.9" />
     <PackageReference Include="NetMQ" Version="4.0.2.1" />
     <PackageReference Include="Scrutor" Version="6.1.0" />

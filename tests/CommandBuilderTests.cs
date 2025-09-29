@@ -86,20 +86,6 @@ public class CommandScopeBuilderTests
     }
 
     [Fact]
-    public async Task Generic_SendAsync_Should_CallScopeSendAsync()
-    {
-        // Arrange
-        var builder = new CommandScopeBuilder<string>(_fakeScope, _fakeCommandWithResponse);
-
-        // Act
-        await builder.SendAsync();
-
-        // Assert
-        A.CallTo(() => _fakeScope.SendAsync(_fakeCommandWithResponse, TimeSpan.FromSeconds(1), null, default))
-         .MustHaveHappenedOnceExactly();
-    }
-
-    [Fact]
     public void Generic_StreamAsync_Should_CallScopeStreamAsync()
     {
         // Arrange

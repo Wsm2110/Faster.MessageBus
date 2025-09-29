@@ -3,6 +3,7 @@ using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
+using Microsoft.Extensions.ObjectPool;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 
@@ -22,6 +23,8 @@ public class CommandScope(
     private static readonly OperationCanceledException s_cachedOperationCanceledException = new("Operation was canceled due to timeout.");
     private readonly ElasticPool _pendingReplyPool = new();
     private readonly ArrayPoolBufferWriter<byte> _writer = new();
+    private readonly PendingReplyPool _pool = new(1024);
+
 
     /// <summary>
     /// Prepares a strongly-typed command for dispatch, returning a scope builder
@@ -132,7 +135,7 @@ public class CommandScope(
             finally
             {
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _pendingReplyPool.Return(pending);
+                _pool.Return(pending);
             }
 
             // Yield the response (which will be default(TResponse) if an error was handled out-of-band)
@@ -192,7 +195,7 @@ public class CommandScope(
             finally
             {
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _pendingReplyPool.Return(pending);
+                _pool.Return(pending);
             }
         }
         _writer.Clear();
@@ -296,7 +299,7 @@ public class CommandScope(
             finally
             {
                 commandReplyHandler.TryUnregister(pending.CorrelationId);
-                _pendingReplyPool.Return(pending);
+                _pool.Return(pending);
             }
 
             yield return val;
@@ -305,116 +308,94 @@ public class CommandScope(
     }
 
     /// <summary>
-    /// Performs the "scatter" part of the operation: serializes the command, creates pending reply objects,
-    /// dispatches them, and sets up a shared timeout. Returns a disposable context holding all resources.
+    /// Performs the "scatter" operation by dispatching a command to multiple endpoints,
+    /// setting up pending replies, serializing the command, and managing cancellation and timeout.
     /// </summary>
-    /// <typeparam name="T">The type of the command being sent.</typeparam>
+    /// <typeparam name="T">The type of the command being sent. Must implement <see cref="ICommand"/>.</typeparam>
     /// <param name="command">The command instance to serialize and dispatch.</param>
-    /// <param name="timeout">The duration after which the linked cancellation token will be canceled.</param>
-    /// <param name="ct">An external cancellation token to link with the timeout token.</param>
-    /// <returns>A <see cref="ScatterContext"/> containing the dispatched requests and cancellation resources.</returns>
+    /// <param name="timeout">The duration after which the linked cancellation token will cancel pending requests.</param>
+    /// <param name="ct">An external <see cref="CancellationToken"/> to link with the timeout.</param>
+    /// <returns>
+    /// A <see cref="ScatterContext"/> containing all pending requests, the linked cancellation token,
+    /// and the timeout registration. Disposing the context will clean up resources.
+    /// </returns>
     private ScatterContext Scatter<T>(T command, TimeSpan timeout, CancellationToken ct) where T : ICommand
     {
         var count = commandProcessor.Count;
-        if (count == 0)
-        {
-            return ScatterContext.Empty;
-        }
+        if (count == 0) return ScatterContext.Empty;
 
-        // Compute the topic hash for the command
+        // Compute topic hash for the command type
         var topic = WyHash.Hash(command.GetType().Name);
 
-        // Get eligible sockets (up to 'count') for this topic
+        // Get eligible sockets for this command
         var sockets = commandProcessor.Get(count, topic);
 
-        // Rent an array from a pool to store pending replies, avoiding allocations.
+        // Rent array from pool to hold PendingReply objects
         var requests = ArrayPool<PendingReply<byte[]>>.Shared.Rent(count);
 
-        // Serialize the command into a pooled buffer writer to avoid heap allocations.
-        _writer.Clear(); // Ensure writer is clear before serializing
+        // Serialize the command into the pooled writer to avoid heap allocations
+        _writer.Clear();
         serializer.Serialize(command, _writer);
 
         int requestIndex = 0;
-        // Iterate over the available sockets (or endpoints).
-        foreach (var socketinfo in sockets)
+        foreach (var socketInfo in sockets)
         {
-            var pending = _pendingReplyPool.Rent(); // Rent a PendingReply object from a pool
+            var pending = _pool.Get();       // Rent a PendingReply object
             commandReplyHandler.RegisterPending(pending); // Register to receive its reply
-            requests[requestIndex++] = pending; // Store it in our rented array
+            requests[requestIndex++] = pending;           // Store in the rented array
 
-            pending.Target = socketinfo.Item2.Info;
+            pending.Target = socketInfo.Item2.Info;
 
-            // Schedule the command for processing, using a struct for payload to reduce allocations.
+            // Schedule the command to be sent over the socket
             commandProcessor.ScheduleCommand(new ScheduleCommand
             {
-                Socket = socketinfo.Item2.Socket,
+                Socket = socketInfo.Item2.Socket,
                 CorrelationId = pending.CorrelationId,
                 Payload = _writer.WrittenMemory,
                 Topic = topic
             });
         }
 
-        // Create a CancellationTokenSource linked to the external token and a timeout.
-        // This is often an unavoidable allocation.
+        // Link external cancellation with timeout to cancel pending requests
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linkedCts.CancelAfter(timeout);
 
-        // Register a callback to fault pending requests if the cancellation token is triggered (timeout or external cancel).
-        var registrationState = (requests, requestIndex);
-        var registration = linkedCts.Token.Register(state =>
+        // Register static callback to fault pending requests on cancellation/timeout       
+        var registration = linkedCts.Token.Register(() =>
         {
-            var (reqs, reqIndex) = ((PendingReply<byte[]>[], int))state!;
-            for (int i = 0; i < reqIndex; i++)
+            for (int i = 0; i < count; i++)
             {
-                var pending = reqs[i];
-                // If the request is not yet completed, set it to a canceled state.
+                ref var pending = ref requests[i];
                 if (!pending.IsCompleted)
                 {
-                    // Use a cached OperationCanceledException for performance.
                     pending.SetException(s_cachedOperationCanceledException);
                 }
             }
-        }, registrationState);
+        });
 
-        // Return a disposable context responsible for managing these resources.
         return new ScatterContext(requests, requestIndex, linkedCts, registration);
     }
 
     /// <summary>
-    /// A private disposable struct to manage the lifetime of resources created during the scatter operation.
-    /// This ensures proper cleanup of pooled arrays and cancellation tokens.
+    /// Represents the disposable context for a scatter operation,
+    /// including pending requests, cancellation token, and timeout registration.
     /// </summary>
     private readonly struct ScatterContext : IDisposable
     {
         /// <summary>
-        /// Represents an empty <see cref="ScatterContext"/> for cases where no requests are sent.
+        /// Returns an empty <see cref="ScatterContext"/> used when no requests are sent.
         /// </summary>
-        public static ScatterContext Empty => new(Array.Empty<PendingReply<byte[]>>(), 0, null!, default); // Use null! for _linkedCts if it can be null
+        public static ScatterContext Empty => new(Array.Empty<PendingReply<byte[]>>(), 0, null, default);
 
-        /// <summary>
-        /// The array of <see cref="PendingReply{T}"/> objects for the dispatched commands.
-        /// </summary>
         public readonly PendingReply<byte[]>[] Requests;
-
-        /// <summary>
-        /// The actual number of valid requests stored in the <see cref="Requests"/> array.
-        /// </summary>
         public readonly int RequestCount;
-
-        private readonly CancellationTokenSource? _linkedCts; // Make nullable as it can be null for Empty context
+        private readonly CancellationTokenSource? _linkedCts;
         private readonly CancellationTokenRegistration _timeoutRegistration;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ScatterContext"/> struct.
-        /// </summary>
-        /// <param name="requests">The array of pending reply objects.</param>
-        /// <param name="requestCount">The number of valid requests in the array.</param>
-        /// <param name="linkedCts">The linked <see cref="CancellationTokenSource"/> for managing timeout and external cancellation.</param>
-        /// <param name="timeoutRegistration">The registration for the timeout callback.</param>
         public ScatterContext(
             PendingReply<byte[]>[] requests,
             int requestCount,
-            CancellationTokenSource? linkedCts, // Parameter is nullable
+            CancellationTokenSource? linkedCts,
             CancellationTokenRegistration timeoutRegistration)
         {
             Requests = requests;
@@ -424,24 +405,20 @@ public class CommandScope(
         }
 
         /// <summary>
-        /// Disposes the resources held by this context, including unregistering the timeout callback,
-        /// disposing the <see cref="CancellationTokenSource"/>, and returning the request array to the pool.
+        /// Disposes the context by unregistering the timeout callback, disposing
+        /// the linked cancellation token, and returning the request array to the pool.
         /// </summary>
         public void Dispose()
         {
-            // Unregister the callback to prevent it from running after disposal.
+            // Dispose registration first to prevent callback firing
             _timeoutRegistration.Dispose();
 
-            // Dispose the CancellationTokenSource to release its timer and resources.
+            // Dispose linked CTS
             _linkedCts?.Dispose();
 
-            // Return the array to the pool if it was rented.
-            if (Requests is not null)
-            {
-                // The `clearArray: true` is crucial to prevent the pool from holding onto
-                // references to PendingReply objects, which could prevent them from being garbage collected.
-                ArrayPool<PendingReply<byte[]>>.Shared.Return(Requests, clearArray: true);
-            }
+            // Return rented array to pool          
+            ArrayPool<PendingReply<byte[]>>.Shared.Return(Requests, clearArray: true);
         }
     }
+
 }

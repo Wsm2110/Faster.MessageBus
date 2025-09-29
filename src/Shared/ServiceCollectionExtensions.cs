@@ -56,7 +56,6 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-
     /// <summary>
     /// Adds MeshMQ messaging infrastructure with configurable _options and _transport.
     /// </summary>
@@ -64,7 +63,7 @@ public static class ServiceCollectionExtensions
     /// <param name="configureOptions">Delegate to configure MeshMQ _options.</param>
     /// <returns>The updated service collection.</returns>
     public static IServiceCollection AddMessageBus(this IServiceCollection services,
-        Action<MessageBrokerOptions> options = default)
+        Action<MessageBrokerOptions>? options = null, bool autoScan = true)
     {
         if (options != null)
         {
@@ -82,8 +81,12 @@ public static class ServiceCollectionExtensions
             installer.Install(services);
         }
 
-        services.AddCommandHandlers();
-        services.AddEventHandlers();
+        if (autoScan) 
+        {
+            services.AddCommandHandlers();
+            services.AddEventHandlers();
+        }
+
         return services;
     }
 }

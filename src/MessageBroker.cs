@@ -44,6 +44,8 @@ using System.Linq;
 /// </remarks>
 public class MessageBroker : IMessageBroker
 {
+    #region Properties
+
     /// <summary>
     /// Gets the dispatcher for publishing events using the publish-subscribe pattern.
     /// </summary>
@@ -56,6 +58,10 @@ public class MessageBroker : IMessageBroker
     /// <value>The <see cref="ICommandDispatcher"/> implementation.</value>
     public ICommandDispatcher CommandDispatcher { get; }
 
+    #endregion  
+
+    #region Ctor
+
     /// <summary>
     /// Initializes a new instance of the <see cref="MessageBroker"/> class,
     /// sets up command routing, bloom filters, and starts discovery.
@@ -66,45 +72,97 @@ public class MessageBroker : IMessageBroker
     /// <param name="mesh">The mesh instance used for discovery initialization.</param>
     public MessageBroker(IEventDispatcher eventDispatcher,
         ICommandDispatcher commandDispatcher,
-        IServiceProvider serviceProvider, 
+        IServiceProvider serviceProvider,
         IEventAggregator eventAggregator,
         MeshApplication mesh)
     {
         EventDispatcher = eventDispatcher;
         CommandDispatcher = commandDispatcher;
 
-        // Ensure required services are registered
+        ActivateCoreServices(serviceProvider);
+        var commandContext = InitializeCommandHandling(serviceProvider);
+        InitializeEventHandling(serviceProvider);
+        var routingFilter = InitializeRoutingFilter(serviceProvider, commandContext);
+        StartNetworkDiscovery(serviceProvider, routingFilter, mesh, eventAggregator);
+    }
+
+    #endregion
+
+    #region Methods
+
+    /// <summary>
+    /// Ensures essential singleton services are activated at startup.
+    /// </summary>
+    private void ActivateCoreServices(IServiceProvider serviceProvider)
+    {
         serviceProvider.GetRequiredService<CommandServer>();
         serviceProvider.GetRequiredService<IHeartBeatMonitor>();
+    }
 
-        var scanner = serviceProvider.GetRequiredService<ICommandAssemblyScanner>();
-        var handler = serviceProvider.GetRequiredService<ICommandMessageHandler>();
+    /// <summary>
+    /// Scans for all command types and initializes the command handler provider.
+    /// </summary>
+    /// <returns>A list of the discovered command type contexts.</returns>
+    private List<(Type messageType, Type responseType)> InitializeCommandHandling(IServiceProvider serviceProvider)
+    {
+        var scanner = serviceProvider.GetRequiredService<ICommandScanner>();
+        var handler = serviceProvider.GetRequiredService<ICommandHandlerProvider>();
 
-        // Scan for commands and initialize the handler
         var commandContext = scanner.ScanForCommands().ToList();
         handler.Initialize(commandContext);
 
-        // Initialize bloom filter for command routing
+        return commandContext;
+    }
+
+    /// <summary>
+    /// Scans for all event types and initializes the event handler provider.
+    /// </summary>
+    private void InitializeEventHandling(IServiceProvider serviceProvider)
+    {
+        var scanner = serviceProvider.GetRequiredService<IEventScanner>();
+        var handler = serviceProvider.GetRequiredService<IEventHandlerProvider>();
+
+        // Note: Renamed variable to 'eventTypes' for clarity.
+        var eventTypes = scanner.ScanForEvents().ToList();
+        handler.Initialize(eventTypes);
+    }
+
+    /// <summary>
+    /// Initializes and populates the command routing filter.
+    /// </summary>
+    /// <returns>The configured command routing filter.</returns>
+    private ICommandRoutingFilter InitializeRoutingFilter(IServiceProvider serviceProvider, List<(Type messageType, Type responseType)> commandContext)
+    {
         var filter = serviceProvider.GetRequiredService<ICommandRoutingFilter>();
         filter.Initialize(commandContext.Count);
 
         foreach (var command in commandContext)
         {
-            var hash = WyHash.Hash(command.messageType.Name);
+            // Note: Using FullName is more robust than Name to avoid hash collisions.
+            var hash = WyHash.Hash(command.messageType.FullName);
             filter.Add(hash);
         }
 
-        var context = mesh.GetMeshContext(filter.GetMembershipTable());
+        return filter;
+    }
+
+    /// <summary>
+    /// Configures the mesh context and starts the network discovery service.
+    /// </summary>
+    private void StartNetworkDiscovery(IServiceProvider serviceProvider, ICommandRoutingFilter routingFilter, MeshApplication mesh, IEventAggregator eventAggregator)
+    {
+        var context = mesh.GetMeshContext(routingFilter.GetMembershipTable());
 
         // Start discovery after registration
-        serviceProvider.GetRequiredService<IMeshDiscoveryService>()
-            .Start(context);
+        serviceProvider.GetRequiredService<IMeshDiscoveryService>().Start(context);
 
         context.Self = true;
 
-        //register self to socketmanagers
+        // Register self to socket managers
         eventAggregator.Publish(new MeshJoined(context));
     }
+
+    #endregion
 }
 
 /// <summary>

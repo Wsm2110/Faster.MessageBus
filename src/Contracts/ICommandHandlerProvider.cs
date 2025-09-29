@@ -7,9 +7,8 @@ namespace Faster.MessageBus.Contracts
     /// Defines a contract for a service that manages the registration, initialization, 
     /// and retrieval of command handlers.
     /// </summary>
-    public interface ICommandMessageHandler
-    {
-            
+    public interface ICommandHandlerProvider
+    {            
         /// <summary>
         /// Retrieves the executable handler delegate for a specific command topic.
         /// </summary>
@@ -29,7 +28,5 @@ namespace Faster.MessageBus.Contracts
         /// and its corresponding response <see cref="Type"/> (which can be null if there is no response).
         /// </param>
         void Initialize(IEnumerable<(Type messageType, Type responseType)> commandTypes);
-
-
     }
 }

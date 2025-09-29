@@ -1,6 +1,8 @@
 ﻿using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Collections.Concurrent;
+
 
 namespace Faster.MessageBus.Features.Commands.Shared;
 
@@ -337,4 +339,59 @@ public sealed class ElasticPool : IDisposable
     }
 
     #endregion
+}
+
+
+/// <summary>
+/// A specialized, thread-safe object pool for PendingReply<byte[]>
+/// implemented with a ConcurrentStack (LIFO).
+/// </summary>
+public sealed class PendingReplyPool
+{
+    private readonly ConcurrentStack<PendingReply<byte[]>> _items = new ConcurrentStack<PendingReply<byte[]>>();
+
+    /// <summary>
+    /// The factory to create new instances when the pool is empty.
+    /// </summary>
+    private readonly Func<PendingReply<byte[]>> _factory = () => new PendingReply<byte[]>();
+
+    /// <summary>
+    /// Gets the number of items currently available in the pool.
+    /// </summary>
+    public int Count => _items.Count;
+
+    /// <summary>
+    /// Initializes a new instance of the pool.
+    /// </summary>
+    /// <param name="initialSize">The number of items to pre-populate the pool with.</param>
+    public PendingReplyPool(int initialSize = 0)
+    {
+        for (int i = 0; i < initialSize; i++)
+        {
+            _items.Push(new PendingReply<byte[]>());
+        }
+    }
+
+    /// <summary>
+    /// Retrieves a PendingReply<byte[]> from the pool or creates a new one.
+    /// </summary>
+    public PendingReply<byte[]> Get()
+    {
+        if (_items.TryPop(out PendingReply<byte[]> item))
+        {
+            return item;
+        }
+        return new PendingReply<byte[]>();
+    }
+
+    /// <summary>
+    /// Resets and returns a PendingReply<byte[]> to the pool.
+    /// </summary>
+    public void Return(PendingReply<byte[]> item)
+    {     
+        // CRITICAL: Reset the object's state before returning it to the pool.
+        // This makes it clean and ready for the next user.
+        item.Reset();
+        _items.Push(item);
+    }
 }

@@ -1,96 +1,100 @@
 ﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Events.Contracts;
+using Microsoft.Extensions.DependencyInjection;
+using System.Reflection;
 
 namespace Faster.MessageBus.Features.Events;
 
 /// <summary>
-/// Discovers, builds, and provides event handler delegates for different event types.
-/// This class acts as a central registry, mapping event topics to their corresponding processing logic.
-/// It uses reflection to dynamically find all event types at startup.
+/// Manages and dispatches event handlers. This class pre-compiles optimized delegates
+/// at startup to ensure high performance at runtime.
 /// </summary>
-internal class EventHandlerProvider : IEventHandlerProvider
+public class EventHandlerProvider : IEventHandlerProvider // Consider renaming the interface
 {
-    /// <summary>
-    /// A dictionary that stores the compiled handler actions.
-    /// The key is the event topic (typically the event type's name), and the value is the action
-    /// that deserializes the payload and invokes the appropriate handler.
-    /// </summary>
-    private readonly Dictionary<string, Action<IServiceProvider, IEventSerializer, byte[]>> _eventHandlers = new();
+    #region Fields
+
+    // Caching MethodInfo in a static field is efficient; reflection lookup occurs only once.
+    private static readonly MethodInfo CreateHandlerMethod =
+        typeof(EventHandlerProvider).GetMethod(nameof(CreateHandlerForEvent), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    // A dictionary mapping the event type's hash to a delegate that executes all its handlers.
+    private readonly Dictionary<string, Func<IServiceProvider, IEventSerializer, byte[], Task>> _eventHandlers = new();
+
+    #endregion
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="EventHandlerProvider"/> class.
-    /// It scans for all types implementing <see cref="IEvent"/> and pre-builds a handler for each.
+    /// Initializes the handler by discovering and registering delegates for all provided event types.
+    /// This should be called once at application startup.
     /// </summary>
-    /// <param name="provider">The dependency injection service provider, used to resolve event handlers at runtime.</param>
-    /// <param name="serializer">The serializer instance for deserializing event payloads.</param>
-    /// <param name="scanner">The service responsible for finding all event types in the relevant assemblies.</param>
-    public EventHandlerProvider(IServiceProvider provider,
-        IEventSerializer serializer,
-        IEventHandlerAssemblyScanner scanner)
+    public void Initialize(IEnumerable<Type> eventTypes)
     {
-        // Discover all classes that implement the IEvent interface.
-        var eventTypes = scanner.FindAllEvents();
-
-        // Get a reference to the AddEventHandler<T> method for later generic invocation.
-        var addMethod = typeof(EventHandlerProvider).GetMethod(nameof(AddEventHandler))!;
-
-        // Iterate over each discovered event type to register a specific handler for it.
         foreach (var eventType in eventTypes)
         {
-            // Create a generic version of the AddEventHandler method, e.g., AddEventHandler<MySpecificEvent>().
-            var genericMethod = addMethod.MakeGenericMethod(eventType);
-
-            // Invoke the generic method (e.g., AddEventHandler<MySpecificEvent>("MySpecificEvent")).
-            // By convention, the topic is the name of the event class itself.
-            genericMethod.Invoke(this, new object[]
-            {
-                eventType.Name
-            });
+            RegisterHandler(eventType);
         }
     }
 
-    /// <inheritdoc />
-    public IEnumerable<string> GetRegisteredTopics() => _eventHandlers.Keys;
+    /// <summary>
+    /// Retrieves the handler function for a specific topic hash.
+    /// </summary>
+    public Func<IServiceProvider, IEventSerializer, byte[], Task> GetHandler(string topic)
+    {
+        if (!_eventHandlers.TryGetValue(topic, out var handler))
+        {
+            throw new KeyNotFoundException($"No event handler registered for topic hash '{topic}'.");
+        }
+        return handler;
+    }
 
     /// <summary>
-    /// Creates and registers a handler delegate for a specific event type.
+    /// Uses reflection to create and register a single event handler delegate.
     /// </summary>
-    /// <typeparam name="TEvent">The type of the event to handle, must implement <see cref="IEvent"/>.</typeparam>
-    /// <param name="topic">The topic string used to identify the event type.</param>
-    public void AddEventHandler<TEvent>(string topic) where TEvent : IEvent
+    private void RegisterHandler(Type eventType)
     {
-        // This delegate is the core logic. It's stored in the dictionary and executed when an event arrives.
-        _eventHandlers[topic] = (serviceProvider, serializer, payload) =>
+        var topic = GetTopicForType(eventType);
+
+        // Create the specific generic method (e.g., CreateHandlerForEvent<MyEvent>).
+        var genericFactory = CreateHandlerMethod.MakeGenericMethod(eventType);
+
+        // Invoke the static factory to create the handler delegate.
+        var handlerDelegate = (Func<IServiceProvider, IEventSerializer, byte[], Task>)genericFactory.Invoke(null, null)!;
+
+        // Add the compiled delegate to the dictionary.
+        if (!_eventHandlers.ContainsKey(topic))
         {
-            // Step 1: Resolve the specific event handler (e.g., IEventHandler<MySpecificEvent>) from the DI container.
-            if (serviceProvider.GetService(typeof(IEventHandler<TEvent>)) is not IEventHandler<TEvent> handler)
+            _eventHandlers[topic] = handlerDelegate;
+        }
+    }
+
+    #region Handler Factory Method
+
+    /// <summary>
+    /// Creates a delegate that, when executed, resolves all handlers for a given event
+    /// from the DI container and runs them concurrently.
+    /// </summary>
+    private static Func<IServiceProvider, IEventSerializer, byte[], Task> CreateHandlerForEvent<TEvent>() where TEvent : IEvent
+    {
+        // This is the optimized delegate that will be executed at runtime. It's async and static.
+        return async static (serviceProvider, serializer, payload) =>
+        {
+            // An event can have multiple handlers. Resolve all of them.
+            var handler = serviceProvider.GetService<IEventHandler<TEvent>>();
+            if (handler == null)
             {
-                // If no handler is registered in the DI container for this event type, we can't proceed.
-                throw new InvalidOperationException($"No eventHandler registered in the DI container for {typeof(IEventHandler<TEvent>)}.");
+                return; // No handlers registered for this event.
             }
 
-            // Step 2: Deserialize the raw byte payload into the specific event object.
-            // The serializer must be configured to handle the IEvent base type (e.g., using Typeless mode).
-            var message = (TEvent)serializer.Deserialize<IEvent>(payload);
+            var @event = (TEvent)serializer.Deserialize<IEvent>(payload);
 
-            // Step 3: Invoke the handler's business logic with the deserialized event object.
-            handler.Handle(message);
+            // Create a task for each handler and execute them all concurrently.
+            await handler.Handle(@event);
         };
     }
 
     /// <summary>
-    /// Retrieves the handler action for a given topic.
+    /// Generates a fast, non-colliding hash for a given type to use as a dictionary key.
     /// </summary>
-    /// <param name="topic">The topic of the event to handle.</param>
-    /// <returns>The executable action that will process the event.</returns>
-    /// <exception cref="KeyNotFoundException">Thrown if no handler is registered for the specified topic.</exception>
-    public Action<IServiceProvider, IEventSerializer, byte[]> GetHandler(string topic)
-    {
-        if (_eventHandlers.TryGetValue(topic, out var handler))
-        {
-            return handler;
-        }
+    private static string GetTopicForType(Type type) => type.Name;
 
-        throw new KeyNotFoundException($"No eventHandler registered for topic '{topic}'.");
-    }
+    #endregion
 }

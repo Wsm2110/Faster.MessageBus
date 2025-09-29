@@ -15,15 +15,20 @@ internal class CommandServiceInstaller : IServiceInstaller
         serviceCollection.AddSingleton<MeshApplication>();
         serviceCollection.AddSingleton<CommandServer>();
 
-        serviceCollection.AddSingleton<ICommandMessageHandler, CommandMessageHandler>();
-        serviceCollection.AddSingleton<ICommandAssemblyScanner, CommandHandlerAssemblyScanner>();
+        serviceCollection.AddSingleton<ICommandHandlerProvider, CommandHandlerProvider>();
+        serviceCollection.AddSingleton<ICommandScanner, CommandScanner>(p =>
+        {
+            // instead of scanning all assemblies, we abuse servicecollections to register commandhandlers
+            return new CommandScanner(serviceCollection);
+        });
+
         serviceCollection.AddSingleton<ICommandRoutingFilter, CommandRoutingFilter>();
 
         serviceCollection.AddSingleton<ICommandSerializer, CommandSerializer>();
         serviceCollection.AddSingleton<ICommandReplyHandler, CommandReplyHandler>();
 
         serviceCollection.AddScoped<ICommandScope, CommandScope>();
-        serviceCollection.AddScoped<ICommandProcessor, CommandProcessor>();    
+        serviceCollection.AddScoped<ICommandProcessor, CommandProcessor>();
 
     }
 }

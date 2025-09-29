@@ -9,16 +9,16 @@ namespace Faster.MessageBus.Features.Commands;
 /// <summary>
 /// Manages and dispatches command handlers.
 /// </summary>
-internal class CommandMessageHandler : ICommandMessageHandler
+internal class CommandHandlerProvider : ICommandHandlerProvider
 {
     #region Fields
 
     // Caching MethodInfo in static fields is efficient; reflection lookup occurs only once.
     private static readonly MethodInfo CreateHandlerMethod =
-        typeof(CommandMessageHandler).GetMethod(nameof(CreateHandlerForCommand), BindingFlags.NonPublic | BindingFlags.Static)!;
+        typeof(CommandHandlerProvider).GetMethod(nameof(CreateHandlerForCommand), BindingFlags.NonPublic | BindingFlags.Static)!;
 
     private static readonly MethodInfo CreateHandlerWithResponseMethod =
-        typeof(CommandMessageHandler).GetMethod(nameof(CreateHandlerForCommandWithResponse), BindingFlags.NonPublic | BindingFlags.Static)!;
+        typeof(CommandHandlerProvider).GetMethod(nameof(CreateHandlerForCommandWithResponse), BindingFlags.NonPublic | BindingFlags.Static)!;
 
     private readonly Dictionary<ulong, Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>>> _commandHandlers = new();
 

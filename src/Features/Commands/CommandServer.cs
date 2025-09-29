@@ -21,7 +21,7 @@ public class CommandServer : IDisposable
     /// <summary>
     /// The messageHandler responsible for invoking the correct business logic based on the request topic.
     /// </summary>
-    private readonly ICommandMessageHandler _messageHandler;
+    private readonly ICommandHandlerProvider _messageHandler;
     private readonly string _serverName;
 
     /// <summary>
@@ -59,7 +59,7 @@ public class CommandServer : IDisposable
         IOptions<MessageBrokerOptions> options,
         IServiceProvider serviceProvider,
         ICommandSerializer commandSerializer,
-        ICommandMessageHandler messageHandler,
+        ICommandHandlerProvider messageHandler,
         IEventAggregator eventAggregator,
         MeshApplication meshAplication)
     {     
@@ -82,9 +82,7 @@ public class CommandServer : IDisposable
         _router.Options.TcpKeepalive = true;
         _router.Options.TcpKeepaliveIdle = TimeSpan.FromSeconds(30);
         _router.Options.TcpKeepaliveInterval = TimeSpan.FromSeconds(10);
-        _router.Options.ReceiveBuffer = 1024 * 64;        // OS recv buffer size
-        _router.Options.SendBuffer = 1024 * 64;           // OS send buffer size
-
+     
         // find random port in range of 10000 -12000
         var port = PortFinder.BindPort(options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
         meshAplication.RpcPort = (ushort)port;
@@ -145,7 +143,6 @@ public class CommandServer : IDisposable
     {
         // Parse the incoming message frames without copying where possible.
         var identity = msg[0];
-
         var topic = FastConvert.BytesToUlong(msg[2].Buffer);
         var correlationId = msg[3];
         var payloadFrame = msg[4];

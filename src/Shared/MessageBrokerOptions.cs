@@ -7,6 +7,8 @@ namespace Faster.MessageBus.Shared;
 /// </summary>
 public class MessageBrokerOptions
 {
+    public bool AutoScan { get; set; } = true;
+
     /// <summary>
     /// Gets or sets the name of the application. This can be used for identification, logging, or prefixing topics.
     /// </summary>

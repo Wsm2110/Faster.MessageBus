@@ -147,11 +147,4 @@ public sealed class CommandScopeBuilder<TResponse> : ICommandScopeBuilder<TRespo
     /// <returns>An async stream of <see cref="Result{T}"/> items containing responses and status.</returns>
     public IAsyncEnumerable<Result<TResponse>> StreamResultAsync() =>
         _scope.StreamResultAsync(_command, _timeout, _ct);
-
-    /// <summary>
-    /// Sends the command asynchronously without expecting a response stream.
-    /// </summary>
-    /// <returns>A <see cref="Task"/> representing the send operation.</returns>
-    public Task SendAsync() =>
-        _scope.SendAsync(_command, _timeout, _onTimeout, _ct);
 }

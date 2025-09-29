@@ -1,33 +1,25 @@
-﻿using Faster.MessageBus.Contracts;
-using System.Buffers;
+﻿using System.Buffers;
 
 namespace Faster.MessageBus.Features.Events.Contracts;
 
 /// <summary>
-/// Defines methods for registering and retrieving message consumers by topic.
-/// (Formerly IEventHandlerProvider)
+/// Defines a contract for a service that manages and provides access to
+/// pre-compiled event handler delegates.
 /// </summary>
 public interface IEventHandlerProvider
 {
     /// <summary>
-    /// Registers a consumer for the given topic that handles messages of type <typeparamref name="TMessage"/>.
+    /// Initializes the handler by discovering and registering delegates for all provided event types.
+    /// This should be called once at application startup.
     /// </summary>
-    /// <typeparam name="TMessage">The type of message the consumer handles.</typeparam>
-    /// <param name="topic">The topic associated with this message type.</param>
-    void AddEventHandler<TEvent>(string topic) where TEvent : IEvent;
+    /// <param name="eventTypes">An enumerable of event types to register handlers for.</param>
+    void Initialize(IEnumerable<Type> eventTypes);
 
     /// <summary>
-    /// Gets the byte array _replyHandler associated with a specific topic.
+    /// Retrieves the compiled handler function for a specific topic hash.
     /// </summary>
-    /// <param name="topic">The topic for which to retrieve the _replyHandler.</param>
-    /// <returns>An action that takes a byte array as input (the serialized message).</returns>
-    Action<IServiceProvider, IEventSerializer, byte[]> GetHandler(string topic);
-
-    /// <summary>
-    /// Returns the list of currently registered consumer topic names.
-    /// </summary>
-    /// <returns>A collection of topic strings.</returns>
-    IEnumerable<string> GetRegisteredTopics();
+    /// <param name="topic">The ulong hash of the event type's full name.</param>
+    /// <returns>A delegate that, when invoked, executes all registered handlers for the event.</returns>
+    /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown if no handler is registered for the specified topic.</exception>
+    Func<IServiceProvider, IEventSerializer, byte[], Task> GetHandler(string topic);
 }
-
-

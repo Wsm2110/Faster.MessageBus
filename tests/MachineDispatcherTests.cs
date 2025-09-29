@@ -18,16 +18,13 @@ public class MachineDispatcherTests
         // Arrange
         using var machineBase = new MachineBase();
 
-        var (_, broker) = machineBase.CreateMessageBus(services =>
-        {
-            services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
-        });
+        var b = machineBase.CreateMessageBus();
 
         await Task.Delay(TimeSpan.FromSeconds(1)); // allow discovery
 
         // Act
         int count = 0;
-        await foreach (var _ in broker.CommandDispatcher.Machine.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(10)))
+        await foreach (var _ in b.Broker.CommandDispatcher.Machine.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(10)))
         {
             ++count;
         }
@@ -58,9 +55,9 @@ public class MachineDispatcherTests
             {
                 count++;
             }
-            else 
+            else
             {
-            
+
             }
         }
 
@@ -85,9 +82,9 @@ public class MachineDispatcherTests
 
         // Act & Assert
         await foreach (var _ in broker.CommandDispatcher.Machine.StreamAsync(new Ping("timeout"),
-            TimeSpan.FromSeconds(2), (ex, target) => 
+            TimeSpan.FromSeconds(2), (ex, target) =>
             {
-            
+
             }))
         {
             // This loop should be cancelled before it receives a response
