@@ -52,7 +52,11 @@ var provider = builder.BuildServiceProvider();
 // Resolve the message bus from DI
 var messageBus = provider.GetRequiredService<IMessageBroker>();
 
-// --- Sending a Command (Request/Reply) ---
+```
+Sending a Command (Request/Reply) 
+
+```csharp
+
 // Note: The command can be sent to different scopes depending on configuration:
 // Local (same process), Machine (same host), Cluster (service cluster), or Network (any reachable node) 
 await messageBus.CommandDispatcher.Local.SendAsync(
@@ -61,21 +65,31 @@ await messageBus.CommandDispatcher.Local.SendAsync(
     CancellationToken.None                                        // Cancellation support
 );
 
-// --- Publishing an Event (Fire-and-Forget) ---
+```
+Publishing an Event (Fire-and-Forget) 
+
+```csharp
+
 await messageBus.EventDispatcher.Publish(
     new UserCreatedEvent(Guid.NewGuid(), "I AM GROOT Local"),      // Event object
     TimeSpan.FromSeconds(5),                                      // Timeout for acknowledgement
     CancellationToken.None
 );
 
-// --- Domain Records ---
+```
+ Commands & Events
+ 
+```csharp
+
 public record UserCreatedEvent(Guid UserId, string UserName) : IEvent;
 
 // Commands can return nothing (void) or a typed result
 public record SubmitOrderCommand(Guid OrderId, string CustomerName, int Quantity, string Product) : ICommand;
 public record PingCommand(Guid CorrelationId, string Message) : ICommand<string>;
+```
+ Event Handler Example 
 
-// --- Event Handler Example ---
+```csharp
 public class UserCreatedEventHandler(ILogger<UserCreatedEventHandler> logger) 
     : IEventHandler<UserCreatedEvent>
 {
@@ -85,7 +99,10 @@ public class UserCreatedEventHandler(ILogger<UserCreatedEventHandler> logger)
     }
 }
 
-// --- Command Handler Example (void return) ---
+```
+Command Handler Example (void return) 
+
+```csharp
 public class SubmitOrderCommandHandler(ILogger<SubmitOrderCommandHandler> logger) 
     : ICommandHandler<SubmitOrderCommand>
 {
@@ -96,7 +113,10 @@ public class SubmitOrderCommandHandler(ILogger<SubmitOrderCommandHandler> logger
     }
 }
 
-// --- Command Handler Example (typed return) ---
+```
+ Command Handler Example (typed return) 
+
+```csharp
 public class PongCommandHandler(ILogger<PongCommandHandler> logger) 
     : ICommandHandler<PingCommand, string>
 {
