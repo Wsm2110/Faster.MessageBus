@@ -1,5 +1,6 @@
 ﻿using Faster.MessageBus;
 using Faster.MessageBus.Features.Commands.Contracts;
+using Faster.MessageBus.Features.Commands.Scope.Cluster;
 using Faster.MessageBus.Features.Commands.Shared;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -98,7 +99,7 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
         var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
 
         var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
-        processor.AddSocketStrategy(new AddLocalSocketStrategy());
+        processor.AddSocketStrategy(new AddClusterSocketStrategy());
 
         return (scope, commandScope);
     }

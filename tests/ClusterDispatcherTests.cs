@@ -24,7 +24,6 @@ public class ClusterDispatcherTests
         var provider = builder.BuildServiceProvider();
         var broker = provider.GetRequiredService<IMessageBroker>();
 
-
         var builder2 = new ServiceCollection().AddMessageBus(options =>
         {
             options.Cluster.ClusterName = "testCluster";
@@ -34,7 +33,7 @@ public class ClusterDispatcherTests
         var broker2 = provider2.GetRequiredService<IMessageBroker>();
 
         //wait for discovery
-        await Task.Delay(1000);
+        await Task.Delay(2000);
 
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
@@ -118,6 +117,8 @@ public class ClusterDispatcherTests
         var broker = provider.GetRequiredService<IMessageBroker>();
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
         await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(2)))
@@ -134,8 +135,7 @@ public class ClusterDispatcherTests
     {
         // 1. Set up the dependency injection container and register the message bus services.
         var builder = new ServiceCollection().AddMessageBus(options =>
-        {
-            
+        {            
             options.Cluster.Applications.Add(new Application("TestApp"));
         });
 

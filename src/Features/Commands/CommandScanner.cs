@@ -15,7 +15,7 @@ public class CommandScanner(IServiceCollection services) : ICommandScanner
     /// Scans the IServiceCollection for registered command handlers.
     /// </summary>
     /// <returns>A collection of tuples, each containing the command type and its corresponding response type (which is null for commands without a response).</returns>
-    public IEnumerable<(Type messageType, Type responseType)> ScanForCommands()
+    public List<(Type messageType, Type responseType)> ScanForCommands()
     {
         // Cache the generic type definitions for performance.
         var commandHandlerWithResponse = typeof(ICommandHandler<,>);

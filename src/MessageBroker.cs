@@ -139,7 +139,7 @@ public class MessageBroker : IMessageBroker
         foreach (var command in commandContext)
         {
             // Note: Using FullName is more robust than Name to avoid hash collisions.
-            var hash = WyHash.Hash(command.messageType.FullName);
+            var hash = WyHash.Hash(command.messageType.Name);
             filter.Add(hash);
         }
 

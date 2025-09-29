@@ -99,7 +99,7 @@ public class CommandScope(
     /// </returns>
     public async IAsyncEnumerable<TResponse> StreamAsync<TResponse>(
         ICommand<TResponse> command,
-        TimeSpan timeout = default,
+        TimeSpan timeout,
         Action<Exception, MeshContext>? OnTimeout = default,
         [EnumeratorCancellation] CancellationToken ct = default)
     {

@@ -18,5 +18,5 @@ public interface ICommandScanner
     /// message type and its corresponding response type. The response type will be null
     /// for commands that do not return a value.
     /// </returns>
-    IEnumerable<(Type messageType, Type responseType)> ScanForCommands();
+    List<(Type messageType, Type responseType)> ScanForCommands();
 }
