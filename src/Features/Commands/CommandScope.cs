@@ -3,7 +3,6 @@ using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
-using Microsoft.Extensions.ObjectPool;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 

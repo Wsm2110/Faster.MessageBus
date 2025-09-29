@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTests", "tests\UnitTest
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.Messagebus.Samples.FluentBuilder", "samples\Faster.Messagebus.Samples.FluentBuilder\Faster.Messagebus.Samples.FluentBuilder.csproj", "{836B3411-9D25-4ABE-895C-21F241019881}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.MessageBus.Samples.NugetSample", "samples\Faster.MessageBus.Samples.NugetSample\Faster.MessageBus.Samples.NugetSample.csproj", "{BDFCB561-0CD6-4881-BF58-7C69B052236A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -53,6 +55,10 @@ Global
 		{836B3411-9D25-4ABE-895C-21F241019881}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{836B3411-9D25-4ABE-895C-21F241019881}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{836B3411-9D25-4ABE-895C-21F241019881}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BDFCB561-0CD6-4881-BF58-7C69B052236A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BDFCB561-0CD6-4881-BF58-7C69B052236A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BDFCB561-0CD6-4881-BF58-7C69B052236A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BDFCB561-0CD6-4881-BF58-7C69B052236A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -63,6 +69,7 @@ Global
 		{F6A07BE4-E4E3-E00F-11E3-432B36E565C9} = {64F69214-5F63-4A3D-8619-30BF8651DC5E}
 		{A13B8C93-64EA-04E6-A21E-20323ED872E0} = {F06F8673-E718-44F9-9C8C-EF87520A5FD2}
 		{836B3411-9D25-4ABE-895C-21F241019881} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{BDFCB561-0CD6-4881-BF58-7C69B052236A} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {E68002CE-095D-44D3-8033-99EEFC48774D}
