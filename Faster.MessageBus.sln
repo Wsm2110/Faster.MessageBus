@@ -23,7 +23,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTests", "tests\UnitTest
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.Messagebus.Samples.FluentBuilder", "samples\Faster.Messagebus.Samples.FluentBuilder\Faster.Messagebus.Samples.FluentBuilder.csproj", "{836B3411-9D25-4ABE-895C-21F241019881}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.MessageBus.Samples.NugetSample", "samples\Faster.MessageBus.Samples.NugetSample\Faster.MessageBus.Samples.NugetSample.csproj", "{BDFCB561-0CD6-4881-BF58-7C69B052236A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.MessageBus.Samples.Nuget", "samples\Faster.MessageBus.Samples.NugetSample\Faster.MessageBus.Samples.Nuget.csproj", "{BDFCB561-0CD6-4881-BF58-7C69B052236A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
