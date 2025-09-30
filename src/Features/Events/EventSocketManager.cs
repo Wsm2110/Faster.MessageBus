@@ -66,7 +66,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     /// This constructor sets up the node's own publisher socket and subscribes to mesh events
     /// to manage connections to other nodes.
     /// </summary>
-    /// <param name="endpoint">An object that will be updated with the dynamically chosen port for publishing.</param>
+    /// <param name="endpoint">An object that will be updated with the dynamically chosen _port for publishing.</param>
     /// <param name="eventAggregator">The event aggregator for mesh lifecycle events.</param>
     /// <param name="eventScheduler">The scheduler for thread-safe socket operations.</param>
     /// <param name="eventHandlerProvider">The provider for registered event topics.</param>
@@ -106,12 +106,12 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
         PublisherSocket.Options.ReceiveBuffer = 1024 * 1024;      // Set OS receive buffer size to 1MB
         PublisherSocket.Options.SendBuffer = 1024 * 1024;         // Set OS send buffer size to 1MB
 
-        // Find an available TCP port and bind the publisher socket to it.
+        // Find an available TCP _port and bind the publisher socket to it.
         var port = PortFinder.BindPort(options.Value.PublishPort, (ushort)(options.Value.PublishPort + 200), port => PublisherSocket.Bind($"tcp://*:{port}"));
 
         Console.WriteLine($"Publisher socket bound to tcp://*:{port}");
 
-        // Update the shared endpoint object so other parts of the application know which port was chosen.
+        // Update the shared endpoint object so other parts of the application know which _port was chosen.
         endpoint.PubPort = (ushort)port;
     }
 
@@ -119,7 +119,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
     /// Creates and configures a new <see cref="SubscriberSocket"/> to connect to a remote node.
     /// This entire operation is scheduled on a dedicated thread to ensure thread safety.
     /// </summary>
-    /// <param name="info">The mesh node information containing the address and port to connect to.</param>
+    /// <param name="info">The mesh node information containing the address and _port to connect to.</param>
     public void AddSocket(MeshContext info)
     {
         // Offload socket creation and configuration to the scheduler's thread.
@@ -138,7 +138,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
 
             _socketInfoList.Add((info.MeshId, subSocket));
 
-            // Add the newly created socket to the poller to begin receiving messages.
+            // TryAdd the newly created socket to the poller to begin receiving messages.
             poller.Add(subSocket);
         });
     }
@@ -159,7 +159,7 @@ internal class EventSocketManager : IEventSocketManager, IDisposable
 
                 if (socketInfo.Id == meshInfo.MeshId)
                 {
-                    // Remove the socket from the poller first to stop receiving events.
+                    // TryRemove the socket from the poller first to stop receiving events.
                     poller.Remove(socketInfo.Socket);
 
                     // Unsubscribe event handlers and dispose of the socket resources.

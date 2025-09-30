@@ -1,5 +1,6 @@
 ﻿using Faster.MessageBus.Features.Discovery.Contracts;
 using Faster.MessageBus.Shared;
+using System.Collections.Concurrent;
 
 
 namespace Faster.MessageBus.Features.Discovery.Infrastructure
@@ -10,20 +11,20 @@ namespace Faster.MessageBus.Features.Discovery.Infrastructure
     internal class MeshRepository : IMeshRepository
     {
         // Internal dictionary storing discovered mesh nodes, keyed by their MeshId
-        private readonly Dictionary<ulong, MeshContext> _discovered = new();
+        private readonly ConcurrentDictionary<ulong, MeshContext> _discovered = new();
 
         /// <inheritdoc/>
-        public bool Add(MeshContext info)
+        public bool TryAdd(MeshContext info)
         {
             if (_discovered.ContainsKey(info.MeshId))
                 return false; // already exists
 
-            _discovered.Add(info.MeshId, info);
+            _discovered.TryAdd(info.MeshId, info);
             return true; // added successfully
         }
 
         /// <inheritdoc/>
-        public bool Remove(MeshContext info) => _discovered.Remove(info.MeshId);
+        public bool TryRemove(MeshContext info) => _discovered.TryRemove(info.MeshId, out _);
 
         /// <inheritdoc/>
         public void Update(MeshContext info) => _discovered[info.MeshId] = info;

@@ -1,5 +1,6 @@
 ﻿using Faster.MessageBus.Contracts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyModel;
 using System.Reflection;
 
 namespace Faster.MessageBus.Shared;
@@ -10,16 +11,9 @@ namespace Faster.MessageBus.Shared;
 public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddEventHandlers(this IServiceCollection services)
-    {
-        // Scan application assemblies (loaded assemblies with a physical location) so handlers
-        // from all referenced/transient assemblies are discovered as well as entry assemblies.
-        var assembliesToScan = AppDomain.CurrentDomain.GetAssemblies()
-            .Where(a => !a.IsDynamic && !string.IsNullOrWhiteSpace(a.Location))
-            .Distinct()
-            .ToArray();
-
+    {   
         services.Scan(scan => scan
-            .FromAssemblies(assembliesToScan)
+            .FromAssemblies(AssemblyHelper.ApplicationAssemblies)
             .AddClasses(classes => classes.AssignableTo(typeof(IEventHandler<>)))
             .AsImplementedInterfaces()
             .WithTransientLifetime()
@@ -30,15 +24,8 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddCommandHandlers(this IServiceCollection services)
     {
-        // Collect all loaded assemblies that have a file location (excludes dynamic assemblies).
-        // This ensures transient / referenced assemblies are included in the scan.
-        var assembliesToScan = AppDomain.CurrentDomain.GetAssemblies()
-            .Where(a => !a.IsDynamic && !string.IsNullOrWhiteSpace(a.Location))
-            .Distinct()
-            .ToArray();
-
         services.Scan(scan => scan
-            .FromAssemblies(assembliesToScan)
+            .FromAssemblies(AssemblyHelper.ApplicationAssemblies)
 
             .AddClasses(classes => classes.AssignableTo(typeof(ICommandHandler<>)))
             .AsImplementedInterfaces()
@@ -80,6 +67,8 @@ public static class ServiceCollectionExtensions
         {
             installer.Install(services);
         }
+
+        services.AddLogging();
 
         if (autoScan) 
         {

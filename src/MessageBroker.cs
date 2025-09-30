@@ -7,8 +7,6 @@ using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Features.Heartbeat.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using System.Linq;
 
 /// <summary>
 /// The main, unified entry point for the entire message bus system.

@@ -20,12 +20,12 @@ namespace Faster.MessageBus.Shared
         public ulong MeshId = new WyRandom((ulong)Environment.TickCount).NextInt64();
 
         /// <summary>
-        /// The TCP port used for PUB socket binding.
+        /// The TCP _port used for PUB socket binding.
         /// </summary>
         public ushort PubPort { get; internal set; }
 
         /// <summary>
-        /// The TCP port used for RPC socket binding.
+        /// The TCP _port used for RPC socket binding.
         /// </summary>
         public ushort RpcPort { get; internal set; }
 
@@ -123,19 +123,19 @@ namespace Faster.MessageBus.Shared
 
     /// <summary>
     /// Utility class for locating and binding available TCP ports in a thread- and process-safe manner.
-    /// Uses a global mutex to prevent port collisions across multiple processes.
+    /// Uses a global mutex to prevent _port collisions across multiple processes.
     /// </summary>
     public static class PortFinder
     {
         private const string PortFinderMutexName = "Global\\Faster.Messagebus";
 
         /// <summary>
-        /// Attempts to find a free TCP port within the specified range and binds it using the provided action.
+        /// Attempts to find a free TCP _port within the specified range and binds it using the provided action.
         /// </summary>
-        /// <param name="startPort">Starting port in the range.</param>
-        /// <param name="endPort">Ending port in the range.</param>
-        /// <param name="bindAction">Action that binds or tests a port.</param>
-        /// <returns>The first available port successfully bound.</returns>
+        /// <param name="startPort">Starting _port in the range.</param>
+        /// <param name="endPort">Ending _port in the range.</param>
+        /// <param name="bindAction">Action that binds or tests a _port.</param>
+        /// <returns>The first available _port successfully bound.</returns>
         /// <exception cref="TimeoutException">Thrown if the global mutex cannot be acquired in 10 seconds.</exception>
         /// <exception cref="InvalidOperationException">Thrown if no ports are available in the specified range.</exception>
         public static int BindPort(ushort startPort, ushort endPort, Action<int> bindAction)
@@ -146,7 +146,7 @@ namespace Faster.MessageBus.Shared
                 {
                     if (!mutex.WaitOne(TimeSpan.FromSeconds(10)))
                     {
-                        throw new TimeoutException("Could not acquire mutex for port finding.");
+                        throw new TimeoutException("Could not acquire mutex for _port finding.");
                     }
 
                     for (var port = startPort; port <= endPort; port++)
@@ -158,7 +158,7 @@ namespace Faster.MessageBus.Shared
                         }
                         catch (NetMQException)
                         {
-                            continue; // port taken, try next
+                            continue; // _port taken, try next
                         }
                     }
                 }

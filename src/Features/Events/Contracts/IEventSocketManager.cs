@@ -17,7 +17,7 @@ public interface IEventSocketManager
     /// <summary>
     /// Creates and configures a new socket to connect to a remote node.
     /// </summary>
-    /// <param name="info">The mesh node information containing the address and port to connect to.</param>
+    /// <param name="info">The mesh node information containing the address and _port to connect to.</param>
     void AddSocket(MeshContext info);
 
     /// <summary>

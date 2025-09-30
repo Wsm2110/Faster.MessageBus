@@ -132,6 +132,10 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
             {
                 yield return (pair.Key, (socketInfo, pair.Value.Socket));
             }
+            else 
+            {
+            
+            }
         }
     }
 
@@ -165,7 +169,7 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     #region Worker Thread Handlers
 
     /// <summary>
-    /// Processes socket management commands (Add/Remove) from the socket command queue. Must run on the poller thread.
+    /// Processes socket management commands (TryAdd/TryRemove) from the socket command queue. Must run on the poller thread.
     /// </summary>
     private void OnSocketReceived(object? sender, NetMQQueueEventArgs<SocketCommand> e)
     {
@@ -204,12 +208,13 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     #endregion
 
     #region Internal Socket Logic (Worker Thread ONLY)
+
     /// <summary>
     /// Handles the logic for creating and adding a new socket. Must run on the poller thread.
     /// </summary>
     private void HandleAddSocket(MeshContext info)
     {
-        if (_poller.IsDisposed || _sockets.ContainsKey(info.MeshId))
+        if (_poller.IsDisposed)
         {
             return;
         }
@@ -217,19 +222,16 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
         {
             return;
         }
-
-        if (!_sockets.ContainsKey(info.MeshId))
+        
+        var socket = new DealerSocket { Options = { Identity = DealerIdentityGenerator.Create() } };
+        socket.ReceiveReady += _handler.ReceivedFromRouter!;
+        socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
+        _poller.Add(socket);
+        _sockets.AddOrUpdate(info.MeshId, (info, socket), (id, data) =>
         {
-            var socket = new DealerSocket { Options = { Identity = DealerIdentityGenerator.Create() } };
-            socket.ReceiveReady += _handler.ReceivedFromRouter!;
-            socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
-            _poller.Add(socket);
-            _sockets.AddOrUpdate(info.MeshId, (info, socket), (id, data) =>
-            {
-                data.Socket = socket;
-                return data;
-            });
-        }
+            data.Socket = socket;
+            return data;
+        });
     }
 
     /// <summary>

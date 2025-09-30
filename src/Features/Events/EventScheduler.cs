@@ -51,7 +51,7 @@ public class EventScheduler : IEventScheduler, IDisposable
         _actionQueue.ReceiveReady += OnQueueReceiveReady;
         _eventQueue.ReceiveReady += OnReceived;
 
-        // Add the queues to the poller. The poller will now monitor them for new items.
+        // TryAdd the queues to the poller. The poller will now monitor them for new items.
         _poller.Add(_actionQueue);
         _poller.Add(_eventQueue);
 

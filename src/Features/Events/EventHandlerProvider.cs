@@ -59,7 +59,7 @@ public class EventHandlerProvider : IEventHandlerProvider // Consider renaming t
         // Invoke the static factory to create the handler delegate.
         var handlerDelegate = (Func<IServiceProvider, IEventSerializer, byte[], Task>)genericFactory.Invoke(null, null)!;
 
-        // Add the compiled delegate to the dictionary.
+        // TryAdd the compiled delegate to the dictionary.
         if (!_eventHandlers.ContainsKey(topic))
         {
             _eventHandlers[topic] = handlerDelegate;

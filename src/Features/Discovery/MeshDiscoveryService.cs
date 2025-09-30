@@ -2,6 +2,7 @@
 using Faster.MessageBus.Features.Discovery.Contracts;
 using Faster.MessageBus.Shared;
 using MessagePack;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NetMQ;
 
@@ -9,124 +10,116 @@ namespace Faster.MessageBus.Features.Discovery;
 
 /// <summary>
 /// Implements a discovery service using <see cref="NetMQBeacon"/> to advertise and listen for <see cref="MeshContext"/> announcements on the local network.
+/// This implementation is optimized for high-throughput and low-allocation scenarios.
 /// </summary>
-internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
+/// <remarks>
+/// For this optimization to be fully effective, the <see cref="MeshContext"/> type should be a 'class' rather than a 'record' or 'struct'
+/// to allow for in-place mutation, which avoids memory allocation on every received beacon.
+/// </remarks>
+internal sealed class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
 {
     #region Fields
 
-    /// <summary>
-    /// The storage provider used to track the state of discovered nodes in the mesh.
-    /// </summary>
     private readonly IMeshRepository _storage;
     private readonly IEventAggregator _eventAggregator;
-
-    /// <summary>
-    /// Configuration _options for the message bus.
-    /// </summary>
-    private readonly IOptions<MessageBrokerOptions> _options;
-
-    /// <summary>
-    /// Provides the details of the local node's endpoint to be advertised.
-    /// </summary>
+    private readonly ILogger<MeshDiscoveryService> _logger;
+    private readonly MessageBrokerOptions _options;
     private readonly MeshApplication _endpoint;
-
-    /// <summary>
-    /// The underlying NetMQ beacon used for UDP broadcast and discovery.
-    /// </summary>
+    private readonly int _port;
     private readonly NetMQBeacon _beacon = new();
-
-    /// <summary>
-    /// A flag to track the disposal state of the object to prevent redundant calls.
-    /// </summary>
-    private bool _disposedValue;
-
-    /// <summary>
-    /// The poller that runs the beacon's event loop in a background thread.
-    /// </summary>
     private readonly NetMQPoller _poller = new();
+    private readonly NetMQTimer _cleanupTimer;
+
+    private byte[]? _localNodePayload;
+    private bool _disposedValue;
 
     #endregion
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MeshDiscoveryService"/> class, configures the beacon, and starts the discovery process.
     /// </summary>
-    /// <param name="provider">The mesh provider used to track discovered nodes.</param>
-    /// <param name="options">The configuration _options for the message bus.</param>
-    /// <param name="endpoint">The local endpoint information to advertise over the network.</param>
-    /// <param name="port">The UDP port to use for beacon broadcasting and listening.</param>
     public MeshDiscoveryService(IMeshRepository provider,
-        IEventAggregator eventAggregator,
-        IOptions<MessageBrokerOptions> options, 
-        MeshApplication endpoint, int port = 9100)
+                                IEventAggregator eventAggregator,
+                                IOptions<MessageBrokerOptions> options,
+                                ILogger<MeshDiscoveryService> logger,
+                                MeshApplication endpoint,
+                                int port = 9100)
     {
         _storage = provider;
         _eventAggregator = eventAggregator;
-        _options = options;
+        _logger = logger;
+        _options = options.Value; // Get the value once to avoid repeated lookups
         _endpoint = endpoint;
+        _port = port;
 
-        // Configure the beacon to use all available network interfaces on the specified port.
         _beacon.ConfigureAllInterfaces(port);
-        // Subscribe to all incoming beacons (the empty string is a wildcard).
-        _beacon.Subscribe("");
-        _beacon.ReceiveReady += OnSignalReceived!; // Hook the receive event.
-        _poller.Add(_beacon);   
+        _beacon.Subscribe(string.Empty); // Empty string is a wildcard
+        _beacon.ReceiveReady += OnSignalReceived;
+        _poller.Add(_beacon);
+
+        // Set up and add the timer for cleaning up inactive nodes
+        _cleanupTimer = new NetMQTimer(_options.CleanupInterval);
+        _cleanupTimer.Elapsed += RemoveInactiveApplications;
+        _poller.Add(_cleanupTimer);
     }
 
-    /// <summary>
-    /// Starts the discovery service by publishing the local node's information and running the background poller to listen for other nodes.
-    /// </summary>
+    /// <inheritdoc/>
     public void Start(MeshContext meshInfo)
-    {       
-        // Publish this node's identity for others to discover.
-        _beacon.Publish(MessagePackSerializer.Serialize(meshInfo), TimeSpan.FromMilliseconds(1000));
+    {
+        // Pre-serialize the local node's information to avoid this work on every publish tick.
+        _localNodePayload = MessagePackSerializer.Serialize(meshInfo);
+
+        // Publish this node's identity for others to discover using a configurable interval.
+        _beacon.Publish(_localNodePayload, _options.BeaconInterval);
         _poller.RunAsync();
+        _logger.LogInformation("Mesh discovery service started. Advertising on all interfaces _port {_port}.", _port);
     }
 
-    /// <summary>
-    /// Stops the discovery service by unsubscribing from beacons and disposing the beacon instance.
-    /// </summary>
-    /// <remarks>
-    /// For a complete shutdown and resource cleanup, it is recommended to call <see cref="Dispose()"/>.
-    /// </remarks>
+    /// <inheritdoc/>
     public void Stop()
     {
-        _beacon.Unsubscribe();      
-        // Note: The poller is intentionally not stopped here; Dispose() handles the full shutdown.
+        _beacon.Unsubscribe();
+        _logger.LogInformation("Mesh discovery service stopped advertising.");
     }
 
     /// <summary>
     /// Handles received beacon signals, deserializes the <see cref="MeshContext"/>, and updates the mesh provider.
-    /// This method is executed on the poller's thread.
+    /// This method is executed on the poller's thread and is optimized to reduce allocations and CPU usage.
     /// </summary>
-    /// <param name="sender">The sender of the event (the <see cref="NetMQBeacon"/>).</param>
-    /// <param name="args">The event arguments containing the received signal.</param>
-    private void OnSignalReceived(object sender, NetMQBeaconEventArgs args)
+    private void OnSignalReceived(object? sender, NetMQBeaconEventArgs args)
     {
-        try
+        // Use a while loop to keep trying to receive signals until TryReceive returns false (timeout reached or no more signals)
+        while (_beacon.TryReceive(TimeSpan.FromSeconds(0.1), out var beacon))
         {
-            if (!_beacon.TryReceive(TimeSpan.FromSeconds(1), out var payload))
-            {
-                return;
-            }
+            try
+            {       
+                var payload = beacon.Bytes;
 
-            // Deserialize the received payload into MeshContext and update its LastSeen timestamp.
-            var info = MessagePackSerializer.Deserialize<MeshContext>(payload.Bytes);
-            var updated = info with { LastSeen = DateTime.UtcNow };
+                // Deserialize the received payload into MeshContext.
+                var info = MessagePackSerializer.Deserialize<MeshContext>(payload);
 
-            // If the node is new, add it and publish a MeshJoined event. Otherwise, update its state.
-            if (_storage.Add(updated))
-            {
-                _eventAggregator.Publish(new MeshJoined(updated));
-                Console.WriteLine($"joined mesh: {updated.ApplicationName} - {updated.WorkstationName}");
+                info.LastSeen = DateTime.UtcNow;
+
+                // Use a TryAdd pattern which is typically more performant for concurrent collections.
+                if (_storage.TryAdd(info))
+                {
+                    _eventAggregator.Publish(new MeshJoined(info));
+                    _logger.LogInformation("New mesh node discovered: {ApplicationName} on {WorkstationName}", info.ApplicationName, info.WorkstationName);
+                }
+                else
+                {
+                    _storage.Update(info);
+                }
             }
-            else
+            catch (MessagePackSerializationException ex)
             {
-                _storage.Update(updated);
+                _logger.LogWarning(ex, "Beacon deserialization failed. A malformed or incompatible packet was received.");
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Beacon deserialization failed: {ex.Message}");
+            catch (Exception ex)
+            {
+                // The catch block must be INSIDE the while loop to continue processing subsequent signals
+                _logger.LogError(ex, "An unexpected error occurred while processing a beacon signal.");
+            }
         }
     }
 
@@ -134,14 +127,20 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     public void RemoveInactiveApplications(object? sender, NetMQTimerEventArgs args)
     {
         var now = DateTime.UtcNow;
+        var inactiveThreshold = _options.InactiveThreshold;
 
+        // NOTE: This operation has a complexity of O(N), where N is the number of nodes.
+        // For scenarios with a very large number of nodes, consider a more advanced
+        // data structure for tracking expirations to avoid iterating the entire collection.
         foreach (var meshInfo in _storage.All())
         {
-            // If the node hasn't been seen in the last 10 seconds, consider it inactive.
-            if ((now - meshInfo.LastSeen).TotalSeconds > 4)
+            if ((now - meshInfo.LastSeen) > inactiveThreshold)
             {
-                _storage.Remove(meshInfo);
-                _eventAggregator.Publish(new MeshRemoved(meshInfo));
+                if (_storage.TryRemove(meshInfo))
+                {
+                    _eventAggregator.Publish(new MeshRemoved(meshInfo));
+                    _logger.LogInformation("Removed inactive mesh node: {ApplicationName} on {WorkstationName}", meshInfo.ApplicationName, meshInfo.WorkstationName);
+                }
             }
         }
     }
@@ -149,25 +148,25 @@ internal class MeshDiscoveryService : IMeshDiscoveryService, IDisposable
     /// <summary>
     /// Disposes the service, stopping the poller and the beacon.
     /// </summary>
-    /// <param name="disposing"><c>true</c> if called from <see cref="Dispose()"/>; <c>false</c> if called from the finalizer.</param>
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (!_disposedValue)
         {
             if (disposing)
             {
-                _beacon.ReceiveReady -= OnSignalReceived!;  
-                // Stop the poller and beacon to clean up resources.
+                // Unhook events to prevent memory leaks
+                _beacon.ReceiveReady -= OnSignalReceived;
+                _cleanupTimer.Elapsed -= RemoveInactiveApplications;
+
+                // Stop the poller and dispose all associated resources.
                 _poller.Stop();
-                _poller.Dispose();          
+                _poller.Dispose();
             }
             _disposedValue = true;
         }
     }
 
-    /// <summary>
-    /// Disposes the discovery service and its underlying resources.
-    /// </summary>
+    /// <inheritdoc/>
     public void Dispose()
     {
         Dispose(disposing: true);

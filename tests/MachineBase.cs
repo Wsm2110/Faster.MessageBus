@@ -19,12 +19,7 @@ namespace UnitTests
         public (ServiceProvider Provider, IMessageBroker Broker) CreateMessageBus(Action<IServiceCollection> configureServices = null)
         {
             var services = new ServiceCollection();
-            services.AddMessageBus(options =>
-            {
-                // ensure a valid port, unique enough for tests running in parallel on CI and in the same process
-                int portOffset = Interlocked.Increment(ref _portOffset);
-                options.RPCPort = (ushort)(52000 + (Environment.ProcessId % 1000) + portOffset);
-            });
+            services.AddMessageBus();
 
             // allow tests to register specific handlers or other services
             configureServices?.Invoke(services);

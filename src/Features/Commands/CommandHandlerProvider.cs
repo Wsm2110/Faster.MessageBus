@@ -63,7 +63,7 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
         // Invoke the static factory to create the handler delegate.
         var handlerDelegate = (Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>>)genericFactory.Invoke(null, null)!;
 
-        // Add the compiled delegate to the dictionary.
+        // TryAdd the compiled delegate to the dictionary.
         if (!_commandHandlers.ContainsKey(topic))
         {
             _commandHandlers[topic] = handlerDelegate;

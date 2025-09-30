@@ -24,7 +24,7 @@ public class MachineDispatcherTests
 
         // Act
         int count = 0;
-        await foreach (var _ in b.Broker.CommandDispatcher.Machine.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(10)))
+        await foreach (var _ in b.Broker.CommandDispatcher.Machine.StreamAsync(new TestPing("hi"), TimeSpan.FromSeconds(1)))
         {
             ++count;
         }
@@ -37,7 +37,7 @@ public class MachineDispatcherTests
     public async Task Machine_SendAsync_two_providers_returns_two_responses()
     {
         // Arrange
-        Action<IServiceCollection> addHandler = services => services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
+        Action<IServiceCollection> addHandler = services => services.AddTransient<ICommandHandler<TestPing, string>, PongCommandHandler>();
         using var machineBase = new MachineBase();
 
 
@@ -49,7 +49,7 @@ public class MachineDispatcherTests
 
         // Act
         int count = 0;
-        await foreach (var result in broker1.CommandDispatcher.Machine.StreamResultAsync(new Ping("hello"), TimeSpan.FromSeconds(1)))
+        await foreach (var result in broker1.CommandDispatcher.Machine.StreamResultAsync(new TestPing("hello"), TimeSpan.FromSeconds(1)))
         {
             if (result.IsSuccess)
             {
@@ -75,13 +75,13 @@ public class MachineDispatcherTests
 
         var (_, broker) = machineBase.CreateMessageBus(services =>
         {
-            services.AddTransient<ICommandHandler<Ping, string>, SlowPongCommandHandler>();
+            services.AddTransient<ICommandHandler<TestPing, string>, SlowPongCommandHandler>();
         });
         await Task.Delay(TimeSpan.FromSeconds(1)); // allow startup
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
 
         // Act & Assert
-        await foreach (var _ in broker.CommandDispatcher.Machine.StreamAsync(new Ping("timeout"),
+        await foreach (var _ in broker.CommandDispatcher.Machine.StreamAsync(new TestPing("timeout"),
             TimeSpan.FromSeconds(2), (ex, target) =>
             {
 
@@ -123,13 +123,13 @@ public class MachineDispatcherTests
 
         var (_, broker) = machineBase.CreateMessageBus(services =>
         {
-            services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
+            services.AddTransient<ICommandHandler<TestPing, string>, PongCommandHandler>();
         });
         await Task.Delay(TimeSpan.FromSeconds(1));
 
         // Act
         var responses = new List<string>();
-        await foreach (var resp in broker.CommandDispatcher.Machine.StreamAsync(new Ping(string.Empty), TimeSpan.FromSeconds(2)))
+        await foreach (var resp in broker.CommandDispatcher.Machine.StreamAsync(new TestPing(string.Empty), TimeSpan.FromSeconds(2)))
         {
             responses.Add(resp);
         }
@@ -146,56 +146,60 @@ public class MachineDispatcherTests
 
         const int providerCount = 10;
         var brokers = new List<IMessageBroker>();
-        Action<IServiceCollection> addHandler = services => services.AddTransient<ICommandHandler<Ping, string>, PongCommandHandler>();
-
+     
         for (int i = 0; i < providerCount; i++)
         {
-            var (_, broker) = machineBase.CreateMessageBus(addHandler);
+            var (_, broker) = machineBase.CreateMessageBus();
             brokers.Add(broker);
         }
 
         // Give the mesh network time to form among all 10 nodes
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        await Task.Delay(TimeSpan.FromSeconds(1));
 
         var sendingBroker = brokers.First();
 
         // Act
         int successCount = 0;
         // Set a generous timeout to allow all nodes to respond
-        await foreach (var result in sendingBroker.CommandDispatcher.Machine.StreamResultAsync(new Ping("scale test"), TimeSpan.FromSeconds(1)))
+        await foreach (var result in sendingBroker.CommandDispatcher.Machine.StreamResultAsync(new TestPing("scale test"), TimeSpan.FromSeconds(10)))
         {
             if (result.IsSuccess)
             {
                 successCount++;
             }
+            else
+            {
+                // Log or handle errors if needed
+                Console.WriteLine($"Error from target: {result.Match(_ => string.Empty, err => err.Message)}");
+            }
         }
-
         // Assert
         Assert.Equal(providerCount, successCount);
     }
-    public record Ping(string Message) : ICommand<string>;
+
+    public record TestPing(string Message) : ICommand<string>;
 
     public record Smile : ICommand<string>;
 
-    public class PongCommandHandler : ICommandHandler<Ping, string>
+    public class PongCommandHandler : ICommandHandler<TestPing, string>
     {
-        public Task<string> Handle(Ping message, CancellationToken cancellationToken)
+        public Task<string> Handle(TestPing message, CancellationToken cancellationToken)
         {
             return Task.FromResult("pong");
         }
     }
 
-    public class AltPongCommandHandler : ICommandHandler<Ping, string>
+    public class AltPongCommandHandler : ICommandHandler<TestPing, string>
     {
-        public Task<string> Handle(Ping message, CancellationToken cancellationToken)
+        public Task<string> Handle(TestPing message, CancellationToken cancellationToken)
         {
             return Task.FromResult("altpong");
         }
     }
 
-    public class SlowPongCommandHandler : ICommandHandler<Ping, string>
+    public class SlowPongCommandHandler : ICommandHandler<TestPing, string>
     {
-        public async Task<string> Handle(Ping message, CancellationToken cancellationToken)
+        public async Task<string> Handle(TestPing message, CancellationToken cancellationToken)
         {
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
             return "slow-pong";

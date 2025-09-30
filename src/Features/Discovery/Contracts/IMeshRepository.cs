@@ -12,14 +12,14 @@ internal interface IMeshRepository
     /// </summary>
     /// <param name="info">The mesh node info to add.</param>
     /// <returns><c>true</c> if the node was added; <c>false</c> if it already exists.</returns>
-    bool Add(MeshContext info);
+    bool TryAdd(MeshContext info);
 
     /// <summary>
     /// Removes a mesh node from the store.
     /// </summary>
     /// <param name="info">The mesh node info to remove.</param>
     /// <returns><c>true</c> if the node was removed; otherwise, <c>false</c>.</returns>
-    bool Remove(MeshContext info);
+    bool TryRemove(MeshContext info);
 
     /// <summary>
     /// Updates an existing mesh node's information in the store.

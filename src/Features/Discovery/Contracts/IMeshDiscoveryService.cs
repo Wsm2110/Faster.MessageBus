@@ -21,7 +21,7 @@ public interface IMeshDiscoveryService : IDisposable
     void Stop();
 
     /// <summary>
-    /// Remove nodes that were previously discovered but are now considered inactive.
+    /// TryRemove nodes that were previously discovered but are now considered inactive.
     /// </summary>
     /// <remarks>
     /// A node is typically marked as inactive if its discovery beacon has not been received

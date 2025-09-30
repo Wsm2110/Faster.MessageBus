@@ -54,7 +54,7 @@ public class CommandServer : IDisposable
     /// Initializes a new instance of the <see cref="CommandServer"/> class.
     /// </summary>
     /// <param name="messageHandler">The messageHandler that will handle the business logic for incoming commands.</param>
-    /// <param name="meshAplication">The Local endpoint configuration, including the port to bind the RPC server to.</param>
+    /// <param name="meshAplication">The Local endpoint configuration, including the _port to bind the RPC server to.</param>
     public CommandServer(
         IOptions<MessageBrokerOptions> options,
         IServiceProvider serviceProvider,
@@ -83,7 +83,7 @@ public class CommandServer : IDisposable
         _router.Options.TcpKeepaliveIdle = TimeSpan.FromSeconds(30);
         _router.Options.TcpKeepaliveInterval = TimeSpan.FromSeconds(10);
      
-        // find random port in range of 10000 -12000
+        // find random _port in range of 10000 -12000
         var port = PortFinder.BindPort(options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
         meshAplication.RpcPort = (ushort)port;
 

@@ -15,12 +15,12 @@ public class MessageBrokerOptions
     public string ApplicationName { get; set; }
 
     /// <summary>
-    /// Gets or sets the network port used for RPC (Request-Reply) communication.
+    /// Gets or sets the network _port used for RPC (Request-Reply) communication.
     /// </summary>
     public ushort RPCPort { get; set; } = 20000;
 
     /// <summary>
-    /// Gets or sets the network port used for Publish-Subscribe communication.
+    /// Gets or sets the network _port used for Publish-Subscribe communication.
     /// </summary>
     public ushort PublishPort { get; set; } = 10000;
 
@@ -33,5 +33,7 @@ public class MessageBrokerOptions
     /// Gets or sets the default timeout for message operations, such as request-reply calls. The default is 1 second.
     /// </summary>
     public TimeSpan MessageTimeout { get; set; } = TimeSpan.FromSeconds(1); // Corrected typo: MesssageTimeout -> MessageTimeout
-
+    public TimeSpan CleanupInterval { get; internal set; } = TimeSpan.FromSeconds(20);
+    public TimeSpan BeaconInterval { get; internal set; } = TimeSpan.FromSeconds(1);
+    public TimeSpan InactiveThreshold { get; internal set; } = TimeSpan.FromSeconds(10);
 }
