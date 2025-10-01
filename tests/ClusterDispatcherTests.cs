@@ -56,7 +56,7 @@ public class ClusterDispatcherTests
 
         var provider = builder.BuildServiceProvider();
         var broker = provider.GetRequiredService<IMessageBroker>();
-       
+
 
         var builder2 = new ServiceCollection().AddMessageBus(options =>
         {
@@ -65,17 +65,17 @@ public class ClusterDispatcherTests
 
         var provider2 = builder2.BuildServiceProvider();
         var broker2 = provider2.GetRequiredService<IMessageBroker>();
-        
+
         //wait for discovery
         await Task.Delay(1000);
-      
+
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
         await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(20)))
         {
             ++count;
         }
-     
+
         Assert.Equal(2, count);
     }
 
@@ -88,10 +88,10 @@ public class ClusterDispatcherTests
             options.Cluster.ClusterName = "testCluster_";
         });
 
-        var provider = builder.BuildServiceProvider();    
-        var broker = provider.GetRequiredService<IMessageBroker>();       
-  
-        await Task.Delay(TimeSpan.FromSeconds(1));  
+        var provider = builder.BuildServiceProvider();
+        var broker = provider.GetRequiredService<IMessageBroker>();
+
+        await Task.Delay(TimeSpan.FromSeconds(1));
         // send a command via Cluster scope (ICommandScope)
         int count = 0;
         await foreach (var resp in broker.CommandDispatcher.Cluster.StreamAsync(new Ping("hi"), TimeSpan.FromSeconds(2)))
@@ -135,7 +135,7 @@ public class ClusterDispatcherTests
     {
         // 1. Set up the dependency injection container and register the message bus services.
         var builder = new ServiceCollection().AddMessageBus(options =>
-        {            
+        {
             options.Cluster.Applications.Add(new Application("TestApp"));
         });
 
@@ -159,11 +159,11 @@ public class ClusterDispatcherTests
     {
         // 1. Set up the dependency injection container and register the message bus services.
         var builder = new ServiceCollection().AddMessageBus(options =>
-        {           
+        {
             options.Cluster.Applications.Add(new Application("TestApp2"));
         });
 
-       using var provider = builder.BuildServiceProvider();
+        using var provider = builder.BuildServiceProvider();
         var broker = provider.GetRequiredService<IMessageBroker>();
 
         var builder2 = new ServiceCollection().AddMessageBus(options =>
