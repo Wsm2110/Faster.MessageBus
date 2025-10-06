@@ -14,16 +14,14 @@ namespace Faster.MessageBus.Features.Commands;
 /// sockets and asynchronously collecting their individual responses.
 /// </summary>
 public class CommandScope(
-    ICommandProcessor commandProcessor,
+    ICommandSocketManager commandSocketManager,
     ICommandSerializer serializer,
-    ICommandReplyHandler commandReplyHandler) : ICommandScope
+    ICommandResponseHandler commandResponseHandler) : ICommandScope
 {
     // Cached exception instances for performance optimization to avoid frequent allocations
     private static readonly OperationCanceledException s_cachedOperationCanceledException = new("Operation was canceled due to timeout.");
-    private readonly ElasticPool _pendingReplyPool = new();
-    private readonly ArrayPoolBufferWriter<byte> _writer = new();
-    private readonly PendingReplyPool _pool = new(1024);
 
+    private readonly ObjectPool<PendingReply<byte[]>> _pool = new ObjectPool<PendingReply<byte[]>>(1024);
 
     /// <summary>
     /// Prepares a strongly-typed command for dispatch, returning a scope builder
@@ -126,21 +124,21 @@ public class CommandScope(
 
                 val = serializer.Deserialize<TResponse>(respBytes);
             }
-            catch (OperationCanceledException e)
-            {
-                // Catch any other unexpected exceptions.
-                OnTimeout?.Invoke(e, pending.Target); // Use OnTimeout for general exceptions too, or create a new callback.           
-            }
+            //catch (OperationCanceledException e)
+            //{
+            //    // Catch any other unexpected exceptions.
+            //    OnTimeout?.Invoke(e, pending.Target); // Use OnTimeout for general exceptions too, or create a new callback.           
+            //}
             finally
             {
-                commandReplyHandler.TryUnregister(pending.CorrelationId);
+                commandResponseHandler.TryUnregister(pending.CorrelationId);
+                pending.Reset();
                 _pool.Return(pending);
             }
 
             // Yield the response (which will be default(TResponse) if an error was handled out-of-band)
             yield return val;
         }
-        _writer.Clear();
     }
 
     /// <summary>
@@ -193,11 +191,11 @@ public class CommandScope(
             }
             finally
             {
-                commandReplyHandler.TryUnregister(pending.CorrelationId);
+                commandResponseHandler.TryUnregister(pending.CorrelationId);
+                pending.Reset();
                 _pool.Return(pending);
             }
         }
-        _writer.Clear();
     }
 
     /// <summary>
@@ -297,14 +295,16 @@ public class CommandScope(
             }
             finally
             {
-                commandReplyHandler.TryUnregister(pending.CorrelationId);
+                commandResponseHandler.TryUnregister(pending.CorrelationId);
+                pending.Reset();
                 _pool.Return(pending);
             }
 
             yield return val;
         }
-        _writer.Clear();
     }
+
+    private long _counter = 0;
 
     /// <summary>
     /// Performs the "scatter" operation by dispatching a command to multiple endpoints,
@@ -320,33 +320,34 @@ public class CommandScope(
     /// </returns>
     private ScatterContext Scatter<T>(T command, TimeSpan timeout, CancellationToken ct) where T : ICommand
     {
-        var count = commandProcessor.Count;
+        var count = commandSocketManager.Count;
         if (count == 0) return ScatterContext.Empty;
 
         // Compute topic hash for the command type
         var topic = WyHash.Hash(command.GetType().Name);
 
         // Get eligible sockets for this command
-        var sockets = commandProcessor.Get(count, topic);
+        var sockets = commandSocketManager.Get(count, topic);
 
         // Rent array from pool to hold PendingReply objects
-        var requests = ArrayPool<PendingReply<byte[]>>.Shared.Rent(count);
+        var requests = new PendingReply<byte[]>[count];
 
-        // Serialize the command into the pooled writer to avoid heap allocations
-        _writer.Clear();
+        ArrayPoolBufferWriter<byte> _writer = new();
+
         serializer.Serialize(command, _writer);
+
+        Interlocked.Increment(ref _counter);
 
         int requestIndex = 0;
         foreach (var socketInfo in sockets)
         {
-            var pending = _pool.Get();       // Rent a PendingReply object
-            commandReplyHandler.RegisterPending(pending); // Register to receive its reply
+            var pending = _pool.Rent();       // Rent a PendingReply object
+            commandResponseHandler.RegisterPending(pending); // Register to receive its reply
             requests[requestIndex++] = pending;           // Store in the rented array
-
             pending.Target = socketInfo.Item2.Info;
 
             // Schedule the command to be sent over the socket
-            commandProcessor.ScheduleCommand(new ScheduleCommand
+            commandSocketManager.ScheduleCommand(new ScheduleCommand
             {
                 Socket = socketInfo.Item2.Socket,
                 CorrelationId = pending.CorrelationId,
@@ -372,7 +373,7 @@ public class CommandScope(
             }
         });
 
-        return new ScatterContext(requests, requestIndex, linkedCts, registration);
+        return new ScatterContext(requests, requestIndex, linkedCts, registration, _writer);
     }
 
     /// <summary>
@@ -384,23 +385,26 @@ public class CommandScope(
         /// <summary>
         /// Returns an empty <see cref="ScatterContext"/> used when no requests are sent.
         /// </summary>
-        public static ScatterContext Empty => new(Array.Empty<PendingReply<byte[]>>(), 0, null, default);
+        public static ScatterContext Empty => new(Array.Empty<PendingReply<byte[]>>(), 0, null, default, null);
 
         public readonly PendingReply<byte[]>[] Requests;
         public readonly int RequestCount;
         private readonly CancellationTokenSource? _linkedCts;
         private readonly CancellationTokenRegistration _timeoutRegistration;
+        private readonly ArrayPoolBufferWriter<byte> _writer;
 
         public ScatterContext(
             PendingReply<byte[]>[] requests,
             int requestCount,
             CancellationTokenSource? linkedCts,
-            CancellationTokenRegistration timeoutRegistration)
+            CancellationTokenRegistration timeoutRegistration,
+            ArrayPoolBufferWriter<byte> writer)
         {
             Requests = requests;
             RequestCount = requestCount;
             _linkedCts = linkedCts;
             _timeoutRegistration = timeoutRegistration;
+            _writer = writer;
         }
 
         /// <summary>
@@ -415,8 +419,9 @@ public class CommandScope(
             // Dispose linked CTS
             _linkedCts?.Dispose();
 
+            _writer?.Dispose();
             // Return rented array to pool          
-            ArrayPool<PendingReply<byte[]>>.Shared.Return(Requests, clearArray: true);
+            // ArrayPool<PendingReply<byte[]>>.Shared.Return(Requests, clearArray: true);
         }
     }
 

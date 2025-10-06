@@ -1,13 +1,16 @@
 ﻿using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
+using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
 using NetMQ.Sockets;
 
 /// <summary>
 /// Defines the contract for a command processor that manages socket lifecycles and command scheduling.
 /// </summary>
-public interface ICommandProcessor : IDisposable
+public interface ICommandSocketManager : IDisposable
 {
+    TransportMode Transport { get; set; }
+
     /// <summary>
     /// Gets the number of sockets currently being managed.
     /// </summary>
@@ -21,8 +24,7 @@ public interface ICommandProcessor : IDisposable
     /// <summary>
     /// Sets the strategy used to validate whether a socket should be created.
     /// </summary>
-    void AddSocketStrategy(ISocketStrategy addMachineSocketStrategy);
-
+    void AddSocketValidation(SocketValidationDelegate socketValidationDelegate);
     /// <summary>
     /// Returns an enumerable collection of managed sockets that are eligible for the given topic, up to the specified count.
     /// </summary>

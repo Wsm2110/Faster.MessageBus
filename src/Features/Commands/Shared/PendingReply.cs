@@ -1,4 +1,5 @@
 ﻿using Faster.MessageBus.Shared;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
 
@@ -14,12 +15,12 @@ namespace Faster.MessageBus.Features.Commands.Shared;
 public sealed class PendingReply<T> : IValueTaskSource<T>
 {
     private ManualResetValueTaskSourceCore<T> _core;
-    private static long _correlationIdCounter = 0;
+    private int _completed; // 0 = not completed, 1 = completed
 
     /// <summary>
     /// A unique identifier used to correlate a request with its corresponding reply message.
     /// </summary>
-    public long CorrelationId { get; private set; }
+    public ulong CorrelationId { get; private set; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PendingReply{T}"/> class.
@@ -29,13 +30,24 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     /// Setting this to <c>false</c> can improve performance by allowing synchronous completion,
     /// but may lead to stack-diving if not handled carefully. Defaults to <c>false</c>.
     /// </param>
-    public PendingReply(bool runContinuationsAsync = false)
+    public PendingReply()
     {
         // WyHash64 is not a standard part of .NET, assuming it's a custom or third-party implementation
         // for generating a fast, non-cryptographic hash.
-        CorrelationId = Interlocked.Increment(ref _correlationIdCounter);
+        CorrelationId = WyRandom.Shared.NextInt64();       
         _core = default;
-        _core.RunContinuationsAsynchronously = runContinuationsAsync;
+        _core.RunContinuationsAsynchronously = false;
+    }
+
+
+    public bool TrySetResult(T result)
+    {
+        if (Interlocked.Exchange(ref _completed, 1) == 0)
+        {
+            _core.SetResult(result);
+            return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -58,7 +70,13 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     /// </summary>
     /// <param name="error">The exception to complete the operation with.</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetException(Exception error) => _core.SetException(error);
+    public void SetException(Exception error)    
+    {
+        if (Interlocked.Exchange(ref _completed, 1) == 0)
+        {
+            _core.SetException(error);
+        }     
+    } 
 
     /// <summary>
     /// Resets the state of the object, making it reusable for another operation.

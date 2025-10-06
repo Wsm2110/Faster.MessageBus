@@ -14,6 +14,8 @@ var provider = builder.BuildServiceProvider();
 // 2. Resolve the main message broker service from the container.
 var messageBus = provider.GetRequiredService<IMessageBroker>();
 
+await Task.Delay(TimeSpan.FromSeconds(1));
+
 // 3. StreamAsync a command which will return without result indicating the other end received and processed our command
 // This command implements ICommand, so it does not expect a reply.
 // The call will complete once the command is dispatched.
@@ -30,13 +32,13 @@ await Task.Delay(TimeSpan.FromSeconds(1));
 Console.WriteLine("start");
 int counter = 0;
 
-while (counter < 10000)
+while (counter < 100000)
 {
     try
     {
         await foreach (var response in messageBus.CommandDispatcher.Machine.StreamAsync(new HelloEvent("I AM GROOT Machine"), TimeSpan.FromSeconds(1)))
         {
-          // Console.WriteLine(response);
+           Console.WriteLine(response);
         }
     }
     catch (Exception)

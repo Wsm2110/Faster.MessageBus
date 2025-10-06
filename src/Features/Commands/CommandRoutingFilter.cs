@@ -165,6 +165,7 @@ namespace Faster.MessageBus.Features.Commands
         /// <param name="bits">Byte array representing the filter.</param>
         /// <param name="preHash">64-bit hash to test.</param>
         /// <returns>True if the hash might be present, false if definitely absent.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool TryContains(byte[] bits, ulong preHash)
         {
             uint h1 = (uint)preHash;

@@ -15,7 +15,7 @@ namespace Faster.MessageBus.Features.Commands.Contracts;
 /// 5. The handler completes the pending reply with the response data, which in turn completes the ValueTask awaited by the client.
 /// 6. The <see cref="TryUnregister"/> method is used to clean up pending replies in cases like timeouts or cancellations.
 /// </remarks>
-public interface ICommandReplyHandler
+public interface ICommandResponseHandler
 {
     /// <summary>
     /// Handles the event raised when a message is received from a NetMQ Socket, expected to be a RouterSocket.
@@ -36,7 +36,7 @@ public interface ICommandReplyHandler
     /// The <see cref="PendingReply{TResult}"/> object representing the asynchronous operation.
     /// It contains the correlation ID used to match the response.
     /// </param>
-    void RegisterPending(PendingReply<byte[]> pending);
+    bool RegisterPending(PendingReply<byte[]> pending);
 
     /// <summary>
     /// Attempts to unregister and remove a pending reply operation from tracking.
@@ -50,5 +50,5 @@ public interface ICommandReplyHandler
     /// <c>true</c> if a pending reply with the specified correlation ID was found and removed;
     /// otherwise, <c>false</c>.
     /// </returns>
-    bool TryUnregister(long corrId);
+    bool TryUnregister(ulong corrId);
 }

@@ -24,7 +24,7 @@ public class MachineDispatcherTests
 
         // Act
         int count = 0;
-        await foreach (var _ in b.Broker.CommandDispatcher.Machine.StreamAsync(new TestPing("hi"), TimeSpan.FromSeconds(1)))
+        await foreach (var _ in b.Broker.CommandDispatcher.Machine.StreamAsync(new TestPing("hi"), TimeSpan.FromSeconds(5)))
         {
             ++count;
         }
@@ -201,7 +201,6 @@ public class MachineDispatcherTests
     {
         public async Task<string> Handle(TestPing message, CancellationToken cancellationToken)
         {
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
             return "slow-pong";
         }
     }

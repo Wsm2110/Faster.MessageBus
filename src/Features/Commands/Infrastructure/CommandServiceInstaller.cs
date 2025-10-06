@@ -25,10 +25,10 @@ internal class CommandServiceInstaller : IServiceInstaller
         serviceCollection.AddSingleton<ICommandRoutingFilter, CommandRoutingFilter>();
 
         serviceCollection.AddSingleton<ICommandSerializer, CommandSerializer>();
-        serviceCollection.AddSingleton<ICommandReplyHandler, CommandReplyHandler>();
+        serviceCollection.AddSingleton<ICommandResponseHandler, CommandResponseHandler>();
 
         serviceCollection.AddScoped<ICommandScope, CommandScope>();
-        serviceCollection.AddScoped<ICommandProcessor, CommandProcessor>();
+        serviceCollection.AddScoped<ICommandSocketManager, CommandSocketManager>();
 
     }
 }

@@ -3,8 +3,14 @@ using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using System.Buffers;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands;
+
+public delegate Task<byte[]> CommandHandlerDelegate(
+       IServiceProvider serviceProvider,
+       ICommandSerializer serializer,
+       ReadOnlySequence<byte> payload);
 
 /// <summary>
 /// Manages and dispatches command handlers.
@@ -20,8 +26,8 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
     private static readonly MethodInfo CreateHandlerWithResponseMethod =
         typeof(CommandHandlerProvider).GetMethod(nameof(CreateHandlerForCommandWithResponse), BindingFlags.NonPublic | BindingFlags.Static)!;
 
-    private readonly Dictionary<ulong, Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>>> _commandHandlers = new();
-
+    private readonly Dictionary<ulong, CommandHandlerDelegate> _commandHandlers = new();
+    private static byte[] _emptyPayload = [1];
     #endregion
 
 
@@ -36,13 +42,10 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
     /// <summary>
     /// Retrieves the handler function for a specific topic.
     /// </summary>
-    public Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> GetHandler(ulong topic)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public CommandHandlerDelegate? GetHandler(ulong topic)
     {
-        if (!_commandHandlers.TryGetValue(topic, out var handler))
-        {
-            throw new KeyNotFoundException($"No command handler registered for topic hash '{topic}'.");
-        }
-        return handler;
+       return _commandHandlers.TryGetValue(topic, out var handler) ? handler : null;  
     }
 
     /// <summary>
@@ -61,7 +64,7 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
         var genericFactory = factoryMethod.MakeGenericMethod(genericTypes);
 
         // Invoke the static factory to create the handler delegate.
-        var handlerDelegate = (Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>>)genericFactory.Invoke(null, null)!;
+        var handlerDelegate = (CommandHandlerDelegate)genericFactory.Invoke(null, null)!;
 
         // TryAdd the compiled delegate to the dictionary.
         if (!_commandHandlers.ContainsKey(topic))
@@ -77,19 +80,20 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
 
     // This section remains unchanged from the previous refactor.
     #region Handler Factory Methods
-
-    private static Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> CreateHandlerForCommand<TCommand>() where TCommand : ICommand
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static CommandHandlerDelegate CreateHandlerForCommand<TCommand>() where TCommand : ICommand
     {
         return async static (serviceProvider, serializer, payload) =>
         {
             var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand>>();
             var command = (TCommand)serializer.Deserialize<ICommand>(payload);
             await handler.Handle(command, CancellationToken.None);
-            return Array.Empty<byte>();
+            return _emptyPayload;
         };
     }
 
-    private static Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> CreateHandlerForCommandWithResponse<TCommand, TResponse>() where TCommand : ICommand<TResponse>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static CommandHandlerDelegate CreateHandlerForCommandWithResponse<TCommand, TResponse>() where TCommand : ICommand<TResponse>
     {
         return async static (serviceProvider, serializer, payload) =>
         {         

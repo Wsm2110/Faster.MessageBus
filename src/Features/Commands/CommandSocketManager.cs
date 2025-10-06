@@ -14,10 +14,13 @@ using System.Collections.Concurrent;
 /// queue for common operations to minimize GC pressure and a dictionary for O(1) socket lookups, ensuring
 /// extreme performance and thread safety via the actor model.
 /// </summary>
-public sealed class CommandProcessor : ICommandProcessor, IDisposable
+public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
 {
     #region Internal Commands & Queues
 
+    private static readonly string s_localMachineName = Environment.MachineName.ToLowerInvariant();
+    private static readonly string s_localWorkstationName = System.Environment.GetEnvironmentVariables()["COMPUTERNAME"]?.ToString()?.ToLowerInvariant()
+        ?? s_localMachineName;
     /// <summary>
     /// Defines the type of socket operation to be performed by the worker thread.
     /// </summary>
@@ -48,15 +51,21 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     private readonly NetMQQueue<SocketCommand> _socketManagerQueue = new();
     #endregion
 
+    #region Properties
+
+    public TransportMode Transport { get; set; }
+
+    #endregion
+
     #region Fields
 
     private readonly ConcurrentDictionary<ulong, (MeshContext Info, DealerSocket Socket)> _sockets = new();
     private readonly IEventAggregator _eventAggregator;
-    private readonly ICommandReplyHandler _handler;
+    private readonly ICommandResponseHandler _handler;
     private readonly IOptions<MessageBrokerOptions> _options;
     private readonly Action<MeshJoined> _onMeshJoined;
     private readonly Action<MeshRemoved> _onMeshRemoved;
-    private ISocketStrategy? _socketStrategy;
+    private SocketValidationDelegate? _socketStrategy;
     private bool _disposed;
 
     #endregion
@@ -67,14 +76,14 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     public int Count => _sockets.Count;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="CommandProcessor"/> class.
+    /// Initializes a new instance of the <see cref="CommandSocketManager"/> class.
     /// </summary>
     /// <param name="eventAggregator">The event aggregator for subscribing to mesh lifecycle events.</param>
     /// <param name="commandReplyHandler">The handler for processing replies from sockets.</param>
     /// <param name="options">Configuration options for the message broker.</param>  
-    public CommandProcessor(
+    public CommandSocketManager(
         IEventAggregator eventAggregator,
-        ICommandReplyHandler commandReplyHandler,
+        ICommandResponseHandler commandReplyHandler,
         IOptions<MessageBrokerOptions> options)
     {
         _eventAggregator = eventAggregator;
@@ -87,7 +96,16 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
         _poller.Add(_commandSchedulerQueue);
         _poller.Add(_socketManagerQueue);
 
-        _pollerThread = new Thread(_poller.Run) { IsBackground = true, Name = "CommandProcessorThread" };
+        _pollerThread = new Thread(() =>
+        {
+            _poller.Run();
+        })
+        {
+            IsBackground = true,
+            Name = "CommandProcessorThread",
+            Priority = ThreadPriority.Highest
+        };
+
         _pollerThread.Start();
 
         _onMeshJoined = data => AddSocket(data.Info);
@@ -132,9 +150,9 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
             {
                 yield return (pair.Key, (socketInfo, pair.Value.Socket));
             }
-            else 
+            else
             {
-            
+                // log?
             }
         }
     }
@@ -157,7 +175,7 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     /// Sets the strategy used to validate whether a socket should be created for a given mesh node.
     /// </summary>
     /// <param name="addMachineSocketStrategy">The validation strategy to apply.</param>
-    public void AddSocketStrategy(ISocketStrategy addMachineSocketStrategy) => _socketStrategy = addMachineSocketStrategy;
+    public void AddSocketValidation(SocketValidationDelegate socketValidationDelegate) => _socketStrategy = socketValidationDelegate;
 
     /// <summary>
     /// Asynchronously schedules a command to be serialized and sent over a socket.
@@ -202,7 +220,7 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
             command.Socket.SendMoreFrameEmpty();
             command.Socket.SendMoreFrame(topicBuffer);
             command.Socket.SendMoreFrame(corrBuffer);
-            command.Socket.SendSpanFrame(command.Payload.Span);
+            command.Socket.SendSpanFrame(command.Payload.Span);        
         }
     }
     #endregion
@@ -212,26 +230,82 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
     /// <summary>
     /// Handles the logic for creating and adding a new socket. Must run on the poller thread.
     /// </summary>
-    private void HandleAddSocket(MeshContext info)
+    private void HandleAddSocket(MeshContext context)
     {
         if (_poller.IsDisposed)
         {
             return;
         }
-        if (_socketStrategy != null && !_socketStrategy.Validate(info, _options))
+        if (_socketStrategy != null && !_socketStrategy.Invoke(context, _options))
         {
             return;
         }
-        
-        var socket = new DealerSocket { Options = { Identity = DealerIdentityGenerator.Create() } };
+
+        var socket = new DealerSocket();
         socket.ReceiveReady += _handler.ReceivedFromRouter!;
-        socket.Connect($"tcp://{info.Address}:{info.RpcPort}");
+
+        setSocketOptions(socket);
+        var endpoint = DetermineEndpoint(Transport, context);
+        socket.Connect(endpoint);
+
         _poller.Add(socket);
-        _sockets.AddOrUpdate(info.MeshId, (info, socket), (id, data) =>
+
+        _sockets.AddOrUpdate(context.MeshId, (context, socket), (id, data) =>
         {
             data.Socket = socket;
             return data;
         });
+    }
+
+    private string DetermineEndpoint(TransportMode transport, MeshContext context)
+    {
+        // RULE 1: If it's the same process (same MeshId), use INPROC
+        if (transport == TransportMode.Inproc)
+        {
+            var endpoint = $"inproc://{context.ApplicationName}";
+            return endpoint;
+        }
+
+        // RULE 2: If it's the same machine (workstation/hostname match), use IPC
+        if (transport == TransportMode.Ipc)
+        {
+            var endpoint = GetIpcEndpoint(context);
+            return endpoint;
+        }
+
+        // RULE 3: Otherwise, use TCP
+        var tcpEndpoint = $"tcp://{context.Address}:{context.RpcPort}";
+        return tcpEndpoint;
+    }
+
+    private void setSocketOptions(DealerSocket dealer)
+    {
+        dealer.Options.Identity = DealerIdentityGenerator.Create();
+        dealer.Options.Linger = TimeSpan.Zero;
+
+        // Massive watermarks - never block under load
+        // Default is 1000, we use 5M for market data bursts
+        dealer.Options.SendHighWatermark = 5_000_000;
+        dealer.Options.ReceiveHighWatermark = 5_000_000;
+
+        // HUGE OS-level buffers - reduces syscall overhead dramatically
+        // Default is 8KB, we use 8MB (1000x larger)
+        // More data per syscall = fewer context switches
+        dealer.Options.SendBuffer = 8_388_608;      // 8MB kernel buffer
+        dealer.Options.ReceiveBuffer = 8_388_608;
+
+        // TCP keepalive - detect dead connections quickly
+        dealer.Options.TcpKeepalive = true;
+        dealer.Options.TcpKeepaliveIdle = TimeSpan.FromSeconds(30);
+        dealer.Options.TcpKeepaliveInterval = TimeSpan.FromSeconds(10);
+
+        // IPv4 only - eliminates IPv6 DNS resolution overhead (~100-500μs)
+        dealer.Options.IPv4Only = true;
+
+        // Fast reconnection - critical for exchange disconnections
+        dealer.Options.ReconnectInterval = TimeSpan.FromMilliseconds(10);
+        dealer.Options.ReconnectIntervalMax = TimeSpan.FromSeconds(5);
+
     }
 
     /// <summary>
@@ -255,6 +329,20 @@ public sealed class CommandProcessor : ICommandProcessor, IDisposable
         socket.ReceiveReady -= _handler.ReceivedFromRouter!;
         socket.Dispose();
     }
+
+    /// <summary>
+    /// Generates IPC endpoint for same-machine communication.
+    /// </summary>
+    private static string GetIpcEndpoint(MeshContext context)
+    {
+        // Use a deterministic endpoint based on application name and mesh ID
+        // This ensures consistent endpoint across process restarts
+        return $"ipc://{context.ApplicationName}";
+
+        // Linux alternative (uncomment if needed):
+        // return $"ipc:///tmp/{context.ApplicationName}-{context.MeshId}.ipc";
+    }
+
     #endregion
 
     #region Disposal

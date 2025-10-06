@@ -1,8 +1,9 @@
-﻿namespace Faster.MessageBus.Shared;
-
-using System;
+﻿using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+
+namespace Faster.MessageBus.Shared;
 
 internal static class WyHash
 {
@@ -91,8 +92,28 @@ internal static class WyHash
 /// </summary>
 public class WyRandom
 {
-    // The internal state of the generator.
     private ulong _seed;
+    private const ulong Secret0 = 0xa0761d6478bd642fUL;
+    private const ulong Secret1 = 0xe7037ed1a0b428dbUL;
+
+    [ThreadStatic]
+    private static WyRandom? _threadInstance;
+
+    private static long _globalSeedCounter;
+
+    public static WyRandom Shared
+    {
+        get
+        {
+            if (_threadInstance == null)
+            {
+                ulong unique = (ulong)Interlocked.Increment(ref _globalSeedCounter);
+                ulong seed = (ulong)DateTime.UtcNow.Ticks ^ ((ulong)Thread.CurrentThread.ManagedThreadId << 32) ^ unique;
+                _threadInstance = new WyRandom(seed);
+            }
+            return _threadInstance;
+        }
+    }
 
     /// <summary>
     /// Initializes a new instance of the WyRandom class using a specified seed.

@@ -1,7 +1,4 @@
-﻿using Faster.MessageBus;
-using Faster.MessageBus.Features.Commands.Contracts;
-using Faster.MessageBus.Features.Commands.Scope.Cluster;
-using Faster.MessageBus.Features.Commands.Shared;
+﻿using Faster.MessageBus.Features.Commands.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
@@ -61,7 +58,7 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
         (_clusterScope, Cluster) = CreateClusterScope(provider);
 
         // Create the network scope for WAN communication
-        (_networkScope, Network) = CreateNetworkScope(provider);    
+        (_networkScope, Network) = CreateNetworkScope(provider);
     }
 
     /// <summary>
@@ -71,8 +68,12 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
     {
         var scope = provider.CreateScope();
         var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
-        var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
-        processor.AddSocketStrategy(new AddLocalSocketStrategy());
+        var socketManager = scope.ServiceProvider.GetRequiredService<ICommandSocketManager>();
+        socketManager.AddSocketValidation((context, options) =>
+        {
+            return context.Self;
+        });
+        socketManager.Transport = Faster.MessageBus.Shared.TransportMode.Inproc;
 
         return (scope, commandScope);
     }
@@ -84,8 +85,18 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
     {
         var scope = provider.CreateScope();
         var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
-        var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
-        processor.AddSocketStrategy(new AddMachineSocketStrategy());
+        var socketManager = scope.ServiceProvider.GetRequiredService<ICommandSocketManager>();
+        socketManager.AddSocketValidation((context, options) =>
+        {
+            if (context.WorkstationName != Environment.MachineName)
+            {
+                return false;
+            }
+
+            return true;
+
+        });
+        socketManager.Transport = Faster.MessageBus.Shared.TransportMode.Ipc;
 
         return (scope, commandScope);
     }
@@ -98,8 +109,34 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
         var scope = provider.CreateScope();
         var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
 
-        var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
-        processor.AddSocketStrategy(new AddClusterSocketStrategy());
+        var socketManager = scope.ServiceProvider.GetRequiredService<ICommandSocketManager>();
+        socketManager.AddSocketValidation((context, options) =>
+        {
+            if (context.Self)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.Value.Cluster.ClusterName) && context.ClusterName == options.Value.Cluster.ClusterName)
+            {
+                return true;
+            }
+
+            // Note: This filtering logic may need review. As written, it rejects a node if *any* configured
+            // application doesn't match, or if *any* configured node IP doesn't match.
+            if (options.Value.Cluster.Applications.Any() && options.Value.Cluster.Applications.Exists(app => app.Name == context.ApplicationName))
+            {
+                return true;
+            }
+
+            if (options.Value.Cluster.Nodes?.Exists(node => node.IpAddress == context.Address) ?? false)
+            {
+                return true;
+            }
+
+            return false;
+        });
+        socketManager.Transport = Faster.MessageBus.Shared.TransportMode.Tcp;
 
         return (scope, commandScope);
     }
@@ -111,7 +148,10 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
     {
         var scope = provider.CreateScope();
         var commandScope = scope.ServiceProvider.GetRequiredService<ICommandScope>();
-        var processor = scope.ServiceProvider.GetRequiredService<ICommandProcessor>();
+
+        var socketManager = scope.ServiceProvider.GetRequiredService<ICommandSocketManager>();
+
+        socketManager.Transport = Faster.MessageBus.Shared.TransportMode.Tcp;
         // no need for a socket strategy, doesnt have any requirements yet
         return (scope, commandScope);
     }

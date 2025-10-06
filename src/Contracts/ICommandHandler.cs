@@ -37,17 +37,3 @@ public interface ICommandHandler<in TCommand> where TCommand : ICommand
     /// <returns>Response from the message</returns>
     Task Handle(TCommand message, CancellationToken cancellationToken);
 }
-
-/// <summary>
-/// Defines a handler for a command that returns a value type response.
-/// Uses ValueTask for optimal performance.
-/// </summary>
-public interface IValueCommandHandler<TCommand, TResponse>
-    where TCommand : ICommand<TResponse>
-{
-    ValueTask<TResponse> Handle(TCommand command, CancellationToken cancellationToken);
-}
-
-public enum CommandHandlerKind : byte { None = 0, ClassResponse = 1, StructResponse = 2, NoResponse = 3 }
-
-

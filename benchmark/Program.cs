@@ -7,7 +7,7 @@ namespace BenchmarkSuite1
     {
         public static void Main(string[] args)
         {
-            BenchmarkRunner.Run<CommandDispatcherBenchmark>();
+            BenchmarkRunner.Run<MultiThreadedEventBenchmark>(new DebugInProcessConfig());
         }
     }
 }

@@ -5,9 +5,7 @@ using BenchmarkDotNet.Attributes;
 using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.VSDiagnostics;
 
-[CPUUsageDiagnoser]
 [MemoryDiagnoser]
 public class CommandDispatcherBenchmark
 {
@@ -19,11 +17,7 @@ public class CommandDispatcherBenchmark
     public void Setup()
     {
         var services = new ServiceCollection();
-        services.AddMessageBus(options =>
-        {
-            options.ApplicationName = "benchmark_node";
-            options.RPCPort = 52345;
-        });
+        services.AddMessageBus();
         _provider = services.BuildServiceProvider();
         _broker = _provider.GetRequiredService<IMessageBroker>();
         _command = new UserCreatedEvent("BenchmarkUser");
@@ -32,9 +26,10 @@ public class CommandDispatcherBenchmark
     [Benchmark]
     public async Task SendMachineCommand()
     {
+        var scope = _broker.CommandDispatcher.Machine;
         for (int i = 0; i < 10000; i++)
         {
-            await _broker.CommandDispatcher.Machine.SendAsync(_command, TimeSpan.FromSeconds(1));
+           await scope.SendAsync(_command, TimeSpan.FromMilliseconds(1000));
         }
     }
 }

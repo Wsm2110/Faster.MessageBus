@@ -8,7 +8,7 @@ namespace Faster.MessageBus.Contracts
     /// and retrieval of command handlers.
     /// </summary>
     public interface ICommandHandlerProvider
-    {            
+    {
         /// <summary>
         /// Retrieves the executable handler delegate for a specific command topic.
         /// </summary>
@@ -17,7 +17,7 @@ namespace Faster.MessageBus.Contracts
         /// A function delegate that encapsulates the logic to deserialize the command, execute the handler,
         /// and serialize the response. This may throw an exception if no handler is found for the topic.
         /// </returns>
-        Func<IServiceProvider, ICommandSerializer, ReadOnlySequence<byte>, Task<byte[]>> GetHandler(ulong topic);
+        CommandHandlerDelegate GetHandler(ulong topic);
 
         /// <summary>
         /// Initializes the message handler by scanning and registering all command types from a given collection.

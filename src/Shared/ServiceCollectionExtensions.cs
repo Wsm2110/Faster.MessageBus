@@ -34,10 +34,6 @@ public static class ServiceCollectionExtensions
             .AddClasses(classes => classes.AssignableTo(typeof(ICommandHandler<,>)))
             .AsImplementedInterfaces()
             .WithTransientLifetime()
-
-            .AddClasses(classes => classes.AssignableTo(typeof(IValueCommandHandler<,>)))
-            .AsImplementedInterfaces()
-            .WithTransientLifetime()
         );
 
         return services;
