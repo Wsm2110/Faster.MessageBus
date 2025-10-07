@@ -29,7 +29,7 @@ public sealed class ElasticPool : IDisposable
     /// <summary>
     /// The core thread-safe collection for storing idle pool items.
     /// </summary>
-    private readonly ConcurrentBag<PendingReply<byte[]>> _items = new();
+    private readonly ConcurrentBag<PendingReply> _items = new();
 
     /// <summary>
     /// The background timer responsible for periodically trimming excess objects from the pool.
@@ -191,7 +191,7 @@ public sealed class ElasticPool : IDisposable
                 Interlocked.Decrement(ref _allocated.Value);
                 break;
             }
-            _items.Add(new PendingReply<byte[]>());
+            _items.Add(new PendingReply());
         }
     }
 
@@ -207,7 +207,7 @@ public sealed class ElasticPool : IDisposable
     /// </remarks>
     /// <exception cref="ObjectDisposedException">Thrown if the pool has been disposed.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public PendingReply<byte[]> Rent()
+    public PendingReply Rent()
     {
         if (_disposed) throw new ObjectDisposedException(GetType().Name);
 
@@ -225,7 +225,7 @@ public sealed class ElasticPool : IDisposable
             {
                 Volatile.Write(ref _lastBurstTicks.Value, Environment.TickCount);
             }
-            return new PendingReply<byte[]>();
+            return new PendingReply();
         }
 
         // 3) Contention path: Over hard cap. Roll back allocation and spin-wait.
@@ -241,7 +241,7 @@ public sealed class ElasticPool : IDisposable
     /// This is an extremely fast, zero-allocation operation that pushes the item into the current thread's local queue within the <see cref="ConcurrentBag{T}"/>.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Return(PendingReply<byte[]> item)
+    public void Return(PendingReply item)
     {
         item.Reset();
         _items.Add(item);
@@ -256,7 +256,7 @@ public sealed class ElasticPool : IDisposable
     /// It spin-waits efficiently until an item is returned to the pool by another thread.
     /// </summary>
     /// <returns>A <see cref="PendingReply{TResult}"/> instance once one becomes available.</returns>
-    private PendingReply<byte[]> WaitForObject()
+    private PendingReply WaitForObject()
     {
         var spinner = new SpinWait();
         while (true)
@@ -343,17 +343,17 @@ public sealed class ElasticPool : IDisposable
 
 
 /// <summary>
-/// A specialized, thread-safe object pool for PendingReply<byte[]>
+/// A specialized, thread-safe object pool for PendingReply
 /// implemented with a ConcurrentStack (LIFO).
 /// </summary>
 public sealed class PendingReplyPool
 {
-    private readonly ConcurrentStack<PendingReply<byte[]>> _items = new ConcurrentStack<PendingReply<byte[]>>();
+    private readonly ConcurrentStack<PendingReply> _items = new ConcurrentStack<PendingReply>();
 
     /// <summary>
     /// The factory to create new instances when the pool is empty.
     /// </summary>
-    private readonly Func<PendingReply<byte[]>> _factory = () => new PendingReply<byte[]>();
+    private readonly Func<PendingReply> _factory = () => new PendingReply();
 
     /// <summary>
     /// Gets the number of items currently available in the pool.
@@ -368,26 +368,26 @@ public sealed class PendingReplyPool
     {
         for (int i = 0; i < initialSize; i++)
         {
-            _items.Push(new PendingReply<byte[]>());
+            _items.Push(new PendingReply());
         }
     }
 
     /// <summary>
-    /// Retrieves a PendingReply<byte[]> from the pool or creates a new one.
+    /// Retrieves a PendingReply from the pool or creates a new one.
     /// </summary>
-    public PendingReply<byte[]> Get()
+    public PendingReply Get()
     {
-        if (_items.TryPop(out PendingReply<byte[]> item))
+        if (_items.TryPop(out PendingReply item))
         {
             return item;
         }
-        return new PendingReply<byte[]>();
+        return new PendingReply();
     }
 
     /// <summary>
-    /// Resets and returns a PendingReply<byte[]> to the pool.
+    /// Resets and returns a PendingReply to the pool.
     /// </summary>
-    public void Return(PendingReply<byte[]> item)
+    public void Return(PendingReply item)
     {     
         // CRITICAL: Reset the object's state before returning it to the pool.
         // This makes it clean and ready for the next user.

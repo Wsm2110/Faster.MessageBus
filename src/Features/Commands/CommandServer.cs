@@ -21,7 +21,6 @@ public sealed class CommandServer : IDisposable
     private readonly IServiceProvider _serviceProvider;
     private readonly ICommandSerializer _commandSerializer;
     private readonly ICommandHandlerProvider _messageHandler;
-    private readonly string _serverName;
     private readonly RouterSocket _router;
     private readonly NetMQPoller _poller;
     private readonly Thread _pollerThread;
@@ -30,10 +29,7 @@ public sealed class CommandServer : IDisposable
     private long _messagesProcessed;
     private long _messagesFailed;
     private volatile bool _disposed;
-
-    [ThreadStatic]
-    private static NetMQMessage? t_messageCache;
-
+  
     private static readonly byte[] s_emptyResponse = Array.Empty<byte>();
 
     public string SendWithValueResponse { get; private set; } = string.Empty;
@@ -49,8 +45,7 @@ public sealed class CommandServer : IDisposable
         _serviceProvider = serviceProvider;
         _commandSerializer = commandSerializer;
         _messageHandler = messageHandler;
-        _serverName = $"server: {options.Value.ApplicationName}";
-
+      
         _router = new RouterSocket();
         _router.ReceiveReady += ReceivedFromDealer!;
 
@@ -64,11 +59,8 @@ public sealed class CommandServer : IDisposable
         // TCP for network communication
         var port = PortFinder.BindPort((ushort)options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
         meshApplication.RpcPort = (ushort)port;
-
-        _sendQueue = new NetMQQueue<NetMQMessage>();
-        _sendQueue.ReceiveReady += SendResponseToDealer;
-
-        _poller = new NetMQPoller { _router, _sendQueue };
+             
+        _poller = new NetMQPoller { _router };
 
         _pollerThread = new Thread(() =>
         {
@@ -116,21 +108,6 @@ public sealed class CommandServer : IDisposable
     }
 
     /// <summary>
-    /// CRITICAL HOT PATH: Batch send with zero-allocation tight loop.
-    /// </summary>
-#if NET5_0_OR_GREATER
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-#endif
-    private void SendResponseToDealer(object? sender, NetMQQueueEventArgs<NetMQMessage> e)
-    {
-        // Drain entire queue in single batch - reduces context switches
-        while (_sendQueue.TryDequeue(out var msg, TimeSpan.Zero))
-        {
-            _router.SendMultipartMessage(msg);
-        }
-    }
-
-    /// <summary>
     /// CRITICAL HOT PATH: Message receive with object reuse optimization.
     /// </summary>
     private void ReceivedFromDealer(object sender, NetMQSocketEventArgs e)
@@ -139,7 +116,7 @@ public sealed class CommandServer : IDisposable
 
         // Tight loop: drain all available messages without yielding
         // Improves cache locality and reduces overhead
-        while (e.Socket.TryReceiveMultipartMessage(ref msg))
+        while (e.Socket.TryReceiveMultipartMessage(ref msg, 4))
         {
             // Fire-and-forget: offload to thread pool
             _ = HandleRequestAsync(msg);
@@ -153,12 +130,12 @@ public sealed class CommandServer : IDisposable
     {
         // Zero-copy frame extraction - no allocation
         var identity = msg[0];
-        var topic = FastConvert.BytesToUlong(msg[2].Buffer);
-        var correlationId = msg[3];
-        var payloadFrame = msg[4];
+        var topic = FastConvert.BytesToUlong(msg[1].Buffer);
+        var correlationId = msg[2];
+        var payloadFrame = msg[3];
 
         // Zero-copy payload wrapping
-        var payload = new ReadOnlySequence<byte>(payloadFrame.Buffer, 0, payloadFrame.MessageSize);
+        var payload = payloadFrame.Buffer.AsMemory();
         var handler = _messageHandler.GetHandler(topic);
 
         byte[] result;
@@ -179,7 +156,7 @@ public sealed class CommandServer : IDisposable
         msg.Append(correlationId);
         msg.Append(result);
 
-        _sendQueue.Enqueue(msg);
+        _router.SendMultipartMessage(msg);
     }
 
     public void Dispose()

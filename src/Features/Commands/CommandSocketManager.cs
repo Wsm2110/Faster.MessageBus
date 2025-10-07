@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using NetMQ;
 using NetMQ.Sockets;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 
 /// <summary>
 /// A self-contained, high-performance processor that manages a collection of <see cref="DealerSocket"/> instances
@@ -212,14 +213,17 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     {
         while (_commandSchedulerQueue.TryDequeue(out var command, TimeSpan.Zero))
         {
-            // Convert ulong values to byte arrays
-            byte[] topicBuffer = BitConverter.GetBytes(command.Topic);
-            byte[] corrBuffer = BitConverter.GetBytes(command.CorrelationId);
+            Span<byte> topicBuffer = stackalloc byte[8];
+            ref ulong topicRef = ref Unsafe.As<byte, ulong>(ref topicBuffer[0]);
+            topicRef = command.Topic;
 
-            // Send frames using byte arrays
-            command.Socket.SendMoreFrameEmpty();
-            command.Socket.SendMoreFrame(topicBuffer);
-            command.Socket.SendMoreFrame(corrBuffer);
+            Span<byte> corrBuffer = stackalloc byte[8];
+            ref ulong corrRef = ref Unsafe.As<byte, ulong>(ref corrBuffer[0]);
+            corrRef = command.CorrelationId;
+                     
+            // Send frames using byte arrays         
+            command.Socket.SendSpanFrame(topicBuffer, true);
+            command.Socket.SendSpanFrame(corrBuffer, true);
             command.Socket.SendSpanFrame(command.Payload.Span);        
         }
     }

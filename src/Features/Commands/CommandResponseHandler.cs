@@ -16,14 +16,14 @@ public sealed class CommandResponseHandler : ICommandResponseHandler
 {
     // High-concurrency dictionary with optimized capacity for trading bursts
     // Preallocate to reduce resize operations during market hours
-    private readonly ConcurrentDictionary<ulong, PendingReply<byte[]>> _pending = new();
+    private readonly ConcurrentDictionary<ulong, PendingReply> _pending = new();
 
     /// <summary>
     /// Registers a pending request with aggressive inlining for minimal overhead.
     /// Hot path: called for every command sent.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool RegisterPending(PendingReply<byte[]> pendingReply) =>
+    public bool RegisterPending(PendingReply pendingReply) =>
         _pending.TryAdd(pendingReply.CorrelationId, pendingReply);
 
     /// <summary>

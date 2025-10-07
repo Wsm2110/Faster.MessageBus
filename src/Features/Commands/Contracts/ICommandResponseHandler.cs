@@ -36,7 +36,7 @@ public interface ICommandResponseHandler
     /// The <see cref="PendingReply{TResult}"/> object representing the asynchronous operation.
     /// It contains the correlation ID used to match the response.
     /// </param>
-    bool RegisterPending(PendingReply<byte[]> pending);
+    bool RegisterPending(PendingReply pending);
 
     /// <summary>
     /// Attempts to unregister and remove a pending reply operation from tracking.

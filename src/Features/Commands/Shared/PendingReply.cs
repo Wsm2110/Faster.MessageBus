@@ -12,9 +12,9 @@ namespace Faster.MessageBus.Features.Commands.Shared;
 /// It is typically used in object pools to manage high-throughput scenarios efficiently.
 /// </summary>
 /// <typeparam name="T">The type of the result for the pending operation.</typeparam>
-public sealed class PendingReply<T> : IValueTaskSource<T>
+public sealed class PendingReply : IValueTaskSource<ReadOnlyMemory<byte>>
 {
-    private ManualResetValueTaskSourceCore<T> _core;
+    private ManualResetValueTaskSourceCore<ReadOnlyMemory<byte>> _core;
     private int _completed; // 0 = not completed, 1 = completed
 
     /// <summary>
@@ -40,7 +40,7 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     }
 
 
-    public bool TrySetResult(T result)
+    public bool TrySetResult(ReadOnlyMemory<byte> result)
     {
         if (Interlocked.Exchange(ref _completed, 1) == 0)
         {
@@ -56,14 +56,14 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     /// </summary>
     /// <returns>A <see cref="ValueTask{TResult}"/> linked to this source.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueTask<T> AsValueTask() => new ValueTask<T>(this, _core.Version);
+    public ValueTask<ReadOnlyMemory<byte>> AsValueTask() => new ValueTask<ReadOnlyMemory<byte>>(this, _core.Version);
 
     /// <summary>
     /// Transitions the underlying <see cref="ValueTask{TResult}"/> to the <see cref="TaskStatus.RanToCompletion"/> state.
     /// </summary>
     /// <param name="result">The result value to complete the operation with.</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetResult(T result) => _core.SetResult(result);
+    public void SetResult(ReadOnlyMemory<byte> result) => _core.SetResult(result);
 
     /// <summary>
     /// Transitions the underlying <see cref="ValueTask{TResult}"/> to the <see cref="TaskStatus.Faulted"/> state.
@@ -91,7 +91,7 @@ public sealed class PendingReply<T> : IValueTaskSource<T>
     /// <param name="token">The unique token identifying the operation version.</param>
     /// <returns>The result of the completed operation.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public T GetResult(short token)
+    public ReadOnlyMemory<byte> GetResult(short token)
     {
         return _core.GetResult(token);
     }

@@ -1,7 +1,6 @@
 ﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using System.Buffers;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
@@ -10,7 +9,7 @@ namespace Faster.MessageBus.Features.Commands;
 public delegate Task<byte[]> CommandHandlerDelegate(
        IServiceProvider serviceProvider,
        ICommandSerializer serializer,
-       ReadOnlySequence<byte> payload);
+       ReadOnlyMemory<byte> payload);
 
 /// <summary>
 /// Manages and dispatches command handlers.
@@ -27,7 +26,7 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
         typeof(CommandHandlerProvider).GetMethod(nameof(CreateHandlerForCommandWithResponse), BindingFlags.NonPublic | BindingFlags.Static)!;
 
     private readonly Dictionary<ulong, CommandHandlerDelegate> _commandHandlers = new();
-    private static byte[] _emptyPayload = [1];
+    private static byte[] _emptyPayload = [];
     #endregion
 
 

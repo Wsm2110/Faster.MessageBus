@@ -29,7 +29,7 @@ public class CommandDispatcherBenchmark
         var scope = _broker.CommandDispatcher.Machine;
         for (int i = 0; i < 10000; i++)
         {
-           await scope.SendAsync(_command, TimeSpan.FromMilliseconds(1000));
+           await scope.SendAsync(_command, TimeSpan.FromMilliseconds(100000));
         }
     }
 }

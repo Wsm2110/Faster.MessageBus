@@ -9,6 +9,12 @@ namespace Faster.MessageBus.Features.Commands.Shared;
 
 public static class FastConvert
 {
+    public static ulong BytesToUlong(ReadOnlySpan<byte> buffer)
+    {
+        return MemoryMarshal.Read<ulong>(buffer);
+    }
+
+
     public static ulong BytesToUlong(byte[] buffer, int offset = 0)
     {
         return MemoryMarshal.Read<ulong>(buffer.AsSpan(offset));
