@@ -16,6 +16,7 @@ public sealed class PendingReply : IValueTaskSource<ReadOnlyMemory<byte>>
 {
     private ManualResetValueTaskSourceCore<ReadOnlyMemory<byte>> _core;
     private int _completed; // 0 = not completed, 1 = completed
+    private static long _counter;
 
     /// <summary>
     /// A unique identifier used to correlate a request with its corresponding reply message.
@@ -34,11 +35,10 @@ public sealed class PendingReply : IValueTaskSource<ReadOnlyMemory<byte>>
     {
         // WyHash64 is not a standard part of .NET, assuming it's a custom or third-party implementation
         // for generating a fast, non-cryptographic hash.
-        CorrelationId = WyRandom.Shared.NextInt64();       
+        CorrelationId = (ulong)Interlocked.Increment(ref _counter);
         _core = default;
         _core.RunContinuationsAsynchronously = false;
     }
-
 
     public bool TrySetResult(ReadOnlyMemory<byte> result)
     {
@@ -70,13 +70,13 @@ public sealed class PendingReply : IValueTaskSource<ReadOnlyMemory<byte>>
     /// </summary>
     /// <param name="error">The exception to complete the operation with.</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetException(Exception error)    
+    public void SetException(Exception error)
     {
         if (Interlocked.Exchange(ref _completed, 1) == 0)
         {
             _core.SetException(error);
-        }     
-    } 
+        }
+    }
 
     /// <summary>
     /// Resets the state of the object, making it reusable for another operation.

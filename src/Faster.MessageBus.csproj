@@ -10,7 +10,7 @@
 		<!-- NuGet packaging metadata -->
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageId>Faster.Messagebus</PackageId>
-		<Version>0.0.2</Version>
+		<Version>0.0.3</Version>
 		<Authors>Wiljan Ruizendaal</Authors>
 		<Description>A high-performance, low-allocation messaging bus for .NET, built on NetMQ for transport and MessagePack for efficient serialization. Designed for speed and ease of use in distributed systems.</Description>
 		<PackageTags>messaging;message-bus;performance;high-performance;netmq;zeromq;zmq;messagepack;pubsub;publish-subscribe</PackageTags>
@@ -19,6 +19,7 @@
 		<RepositoryType>git</RepositoryType>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<AssemblyOriginatorKeyFile>Faster.snk</AssemblyOriginatorKeyFile>
 		
 		<!-- Debugging & SourceLink -->
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -38,7 +39,11 @@
 		<PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
 		<PackageReference Include="Microsoft.Extensions.Options" Version="9.0.9" />
 		<PackageReference Include="NetMQ" Version="4.0.2.1" />
-		<PackageReference Include="Scrutor" Version="6.1.0" />	
+		<PackageReference Include="Scrutor" Version="6.1.0" />
 	</ItemGroup>
+
+	<Target Name="GenerateSnk" BeforeTargets="BeforeBuild" Condition="!Exists('$(ProjectDir)Faster.snk')">
+		<Exec Command="powershell -ExecutionPolicy Bypass -Command ^&#xD;&#xA;    $csp = New-Object System.Security.Cryptography.RSACryptoServiceProvider(2048); ^&#xD;&#xA;    $bytes = $csp.ExportCspBlob($true); ^&#xD;&#xA;    [System.IO.File]::WriteAllBytes('$(ProjectDir)Faster.snk', $bytes)" />
+	</Target>
 	
 </Project>

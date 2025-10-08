@@ -10,14 +10,17 @@ using Microsoft.Extensions.DependencyInjection;
 public class CommandDispatcherBenchmark
 {
     private IServiceProvider _provider;
-    private IMessageBroker _broker;   
+    private IMessageBroker _broker;
     private ICommand _command;
 
     [GlobalSetup]
     public void Setup()
     {
         var services = new ServiceCollection();
-        services.AddMessageBus();
+        services.AddMessageBus(options =>
+        {
+            options.ServerInstances = 0;
+        });
         _provider = services.BuildServiceProvider();
         _broker = _provider.GetRequiredService<IMessageBroker>();
         _command = new UserCreatedEvent("BenchmarkUser");
@@ -29,7 +32,7 @@ public class CommandDispatcherBenchmark
         var scope = _broker.CommandDispatcher.Machine;
         for (int i = 0; i < 10000; i++)
         {
-           await scope.SendAsync(_command, TimeSpan.FromMilliseconds(100000));
+            await scope.SendAsync(_command, TimeSpan.FromSeconds(100));
         }
     }
 }

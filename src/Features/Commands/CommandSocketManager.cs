@@ -1,4 +1,5 @@
-﻿using Faster.MessageBus.Contracts;
+﻿using CommunityToolkit.HighPerformance;
+using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
@@ -8,6 +9,7 @@ using NetMQ;
 using NetMQ.Sockets;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+
 
 /// <summary>
 /// A self-contained, high-performance processor that manages a collection of <see cref="DealerSocket"/> instances
@@ -60,7 +62,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
 
     #region Fields
 
-    private readonly ConcurrentDictionary<ulong, (MeshContext Info, DealerSocket Socket)> _sockets = new();
+    private readonly ConcurrentDictionary<MeshContext, CommandSocketPool> _sockets = new();
     private readonly IEventAggregator _eventAggregator;
     private readonly ICommandResponseHandler _handler;
     private readonly IOptions<MessageBrokerOptions> _options;
@@ -68,13 +70,14 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     private readonly Action<MeshRemoved> _onMeshRemoved;
     private SocketValidationDelegate? _socketStrategy;
     private bool _disposed;
+    private int _count;
 
     #endregion
 
     /// <summary>
     /// Gets the number of sockets currently being managed by the processor.
     /// </summary>
-    public int Count => _sockets.Count;
+    public int Count => _count;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CommandSocketManager"/> class.
@@ -84,11 +87,11 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// <param name="options">Configuration options for the message broker.</param>  
     public CommandSocketManager(
         IEventAggregator eventAggregator,
-        ICommandResponseHandler commandReplyHandler,
+        ICommandResponseHandler handler,
         IOptions<MessageBrokerOptions> options)
     {
         _eventAggregator = eventAggregator;
-        _handler = commandReplyHandler;
+        _handler = handler;
         _options = options;
 
         _commandSchedulerQueue.ReceiveReady += OnCommandReceived;
@@ -103,7 +106,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         })
         {
             IsBackground = true,
-            Name = "CommandProcessorThread",
+            Name = "CommandSocketManagerThread",
             Priority = ThreadPriority.Highest
         };
 
@@ -134,27 +137,27 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// Only sockets whose routing table contains the specified <paramref name="topic"/> are returned.
     /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
     /// </remarks>
-    public IEnumerable<(ulong Id, (MeshContext Info, DealerSocket Socket))> Get(int count, ulong topic)
+    public IEnumerable<DealerSocket> Get(int count, ulong topic)
     {
-        int i = 0;
+        int yielded = 0;
         foreach (var pair in _sockets)
         {
-            if (i++ >= count)
+            if (yielded >= count)
             {
-                break; // Stop enumeration once the requested count is reached
+                break;
             }
 
-            var socketInfo = pair.Value.Info;
+            var context = pair.Key;
+            var pool = pair.Value;
 
-            // Only yield sockets that contain the topic in their command routing table
-            if (CommandRoutingFilter.TryContains(socketInfo.CommandRoutingTable, topic))
+            if (!CommandRoutingFilter.TryContains(context.CommandRoutingTable, topic))
             {
-                yield return (pair.Key, (socketInfo, pair.Value.Socket));
+                continue;
             }
-            else
-            {
-                // log?
-            }
+
+            // Use pool.GetSocket() to round-robin across multiple sockets
+            yield return pool.GetSocket();
+            yielded++;
         }
     }
 
@@ -197,9 +200,11 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
             switch (command.Type)
             {
                 case CommandType.AddSocket:
+                    Interlocked.Increment(ref _count);
                     HandleAddSocket(command.MeshInfo);
                     break;
                 case CommandType.RemoveSocket:
+                    Interlocked.Decrement(ref _count);
                     HandleRemoveSocket(command.MeshInfo);
                     break;
             }
@@ -213,18 +218,15 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     {
         while (_commandSchedulerQueue.TryDequeue(out var command, TimeSpan.Zero))
         {
-            Span<byte> topicBuffer = stackalloc byte[8];
-            ref ulong topicRef = ref Unsafe.As<byte, ulong>(ref topicBuffer[0]);
-            topicRef = command.Topic;
+            Span<byte> buffer = stackalloc byte[16 + command.Payload.Length];
 
-            Span<byte> corrBuffer = stackalloc byte[8];
-            ref ulong corrRef = ref Unsafe.As<byte, ulong>(ref corrBuffer[0]);
-            corrRef = command.CorrelationId;
-                     
-            // Send frames using byte arrays         
-            command.Socket.SendSpanFrame(topicBuffer, true);
-            command.Socket.SendSpanFrame(corrBuffer, true);
-            command.Socket.SendSpanFrame(command.Payload.Span);        
+            // Write Topic and CorrelationId directly
+            Unsafe.As<byte, ulong>(ref buffer[0]) = command.Topic;
+            Unsafe.As<byte, ulong>(ref buffer[8]) = command.CorrelationId;
+
+            // Copy payload
+            command.Payload.Span.CopyTo(buffer.Slice(16));
+            command.Socket.SendSpanFrame(buffer);
         }
     }
     #endregion
@@ -234,46 +236,79 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// <summary>
     /// Handles the logic for creating and adding a new socket. Must run on the poller thread.
     /// </summary>
+    /// <summary>
+    /// Handles adding new sockets for a given MeshContext.
+    /// Creates DealerSockets, configures them, connects them to endpoints,
+    /// and updates the internal socket pool atomically.
+    /// </summary>
     private void HandleAddSocket(MeshContext context)
     {
-        if (_poller.IsDisposed)
+        // If the poller is already disposed, we can't add sockets anymore
+        if (_poller.IsDisposed) return;
+
+        // If a socket creation strategy exists, use it to decide whether to create sockets
+        // If the strategy rejects this context, skip socket creation
+        if (_socketStrategy != null && !_socketStrategy.Invoke(context, _options)) return;
+
+        // Create an array of DealerSockets.
+        // If context.Hosts == 0, allocate at least one slot (default).
+        var socketArray = new DealerSocket[context.Hosts == 0 ? 1 : context.Hosts];
+
+        // Iterate over the host count to create and configure sockets
+        for (sbyte i = 0; i <= context.Hosts; i++)
         {
-            return;
+            // Create a DealerSocket (client socket that connects to a Router)
+            var socket = new DealerSocket();
+
+            // Subscribe the socket to the handler that processes messages from the Router
+            socket.ReceiveReady += _handler.ReceivedFromRouter!;
+
+            // Apply custom socket options (timeouts, identities, linger, etc.)
+            setSocketOptions(socket);
+
+            // Determine the endpoint to connect to, based on transport type, context, and index
+            var endpoint = DetermineEndpoint(Transport, context, (byte)i);
+
+            // Connect the DealerSocket to the resolved endpoint
+            socket.Connect(endpoint);
+
+            // Register the socket with the poller so it participates in the event loop
+            _poller.Add(socket);
+
+            // Store the socket in the array for pooling
+            socketArray[i] = socket;
         }
-        if (_socketStrategy != null && !_socketStrategy.Invoke(context, _options))
+
+        // Wrap the created sockets in a pool object
+        var pool = new CommandSocketPool(socketArray);
+
+        // Atomically add or update the socket pool in the dictionary
+        _sockets.AddOrUpdate(context, pool, (key, oldPool) =>
         {
-            return;
-        }
+            // Clean up old sockets before replacing them
+            foreach (var s in oldPool.Sockets)
+                CleanupSocket(s);
 
-        var socket = new DealerSocket();
-        socket.ReceiveReady += _handler.ReceivedFromRouter!;
-
-        setSocketOptions(socket);
-        var endpoint = DetermineEndpoint(Transport, context);
-        socket.Connect(endpoint);
-
-        _poller.Add(socket);
-
-        _sockets.AddOrUpdate(context.MeshId, (context, socket), (id, data) =>
-        {
-            data.Socket = socket;
-            return data;
+            // Return the new pool
+            return pool;
         });
     }
 
-    private string DetermineEndpoint(TransportMode transport, MeshContext context)
+
+
+    private string DetermineEndpoint(TransportMode transport, MeshContext context, byte count)
     {
         // RULE 1: If it's the same process (same MeshId), use INPROC
         if (transport == TransportMode.Inproc)
         {
-            var endpoint = $"inproc://{context.ApplicationName}";
+            var endpoint = $"inproc://{context.ApplicationName}-{count}";
             return endpoint;
         }
 
         // RULE 2: If it's the same machine (workstation/hostname match), use IPC
         if (transport == TransportMode.Ipc)
         {
-            var endpoint = GetIpcEndpoint(context);
+            var endpoint = GetIpcEndpoint(context, count);
             return endpoint;
         }
 
@@ -297,6 +332,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         // More data per syscall = fewer context switches
         dealer.Options.SendBuffer = 8_388_608;      // 8MB kernel buffer
         dealer.Options.ReceiveBuffer = 8_388_608;
+        dealer.Options.Backlog = 1024;
 
         // TCP keepalive - detect dead connections quickly
         dealer.Options.TcpKeepalive = true;
@@ -309,7 +345,6 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         // Fast reconnection - critical for exchange disconnections
         dealer.Options.ReconnectInterval = TimeSpan.FromMilliseconds(10);
         dealer.Options.ReconnectIntervalMax = TimeSpan.FromSeconds(5);
-
     }
 
     /// <summary>
@@ -317,10 +352,13 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// </summary>
     private void HandleRemoveSocket(MeshContext meshInfo)
     {
-        if (_sockets.TryRemove(meshInfo.MeshId, out var socketInfo))
+        if (_sockets.TryRemove(meshInfo, out var pool))
         {
-            _poller.Remove(socketInfo.Socket);
-            CleanupSocket(socketInfo.Socket);
+            foreach (var socket in pool.Sockets)
+            {
+                _poller.Remove(socket);
+                CleanupSocket(socket);
+            }
         }
     }
 
@@ -337,11 +375,11 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// <summary>
     /// Generates IPC endpoint for same-machine communication.
     /// </summary>
-    private static string GetIpcEndpoint(MeshContext context)
+    private static string GetIpcEndpoint(MeshContext context, uint serverCount)
     {
         // Use a deterministic endpoint based on application name and mesh ID
         // This ensures consistent endpoint across process restarts
-        return $"ipc://{context.ApplicationName}";
+        return $"ipc://{context.ApplicationName}-{serverCount}";
 
         // Linux alternative (uncomment if needed):
         // return $"ipc:///tmp/{context.ApplicationName}-{context.MeshId}.ipc";
@@ -376,10 +414,14 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         _socketManagerQueue.Dispose();
         _poller.Dispose();
 
-        foreach (var socketInfo in _sockets.Values)
+        foreach (var pool in _sockets.Values)
         {
-            CleanupSocket(socketInfo.Socket);
+            foreach (var s in pool.Sockets)
+            {
+                CleanupSocket(s);
+            }
         }
+
         _sockets.Clear();
 
         GC.SuppressFinalize(this);

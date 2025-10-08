@@ -13,7 +13,8 @@ internal class CommandServiceInstaller : IServiceInstaller
         serviceCollection.Configure<MessageBrokerOptions>(options => { });
 
         serviceCollection.AddSingleton<MeshApplication>();
-        serviceCollection.AddSingleton<CommandServer>();
+        serviceCollection.AddTransient<ICommandServer, CommandServer>();
+        serviceCollection.AddSingleton<ICommandServerHost, CommandServerHost>();
 
         serviceCollection.AddSingleton<ICommandHandlerProvider, CommandHandlerProvider>();
         serviceCollection.AddSingleton<ICommandScanner, CommandScanner>(p =>

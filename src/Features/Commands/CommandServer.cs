@@ -1,14 +1,13 @@
 ﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.Options;
 using NetMQ;
 using NetMQ.Sockets;
 using System;
-using System.Buffers;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Faster.MessageBus.Features.Commands;
 
@@ -16,36 +15,25 @@ namespace Faster.MessageBus.Features.Commands;
 /// Extreme performance command server using advanced NetMQ optimization secrets.
 /// Achieves sub-10 microsecond latency for simple handlers.
 /// </summary>
-public sealed class CommandServer : IDisposable
+public sealed class CommandServer(
+    IOptions<MessageBrokerOptions> options,
+    IServiceProvider serviceProvider,
+    ICommandSerializer commandSerializer,
+    ICommandHandlerProvider messageHandler,
+    MeshApplication meshApplication) : ICommandServer, IDisposable
 {
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ICommandSerializer _commandSerializer;
-    private readonly ICommandHandlerProvider _messageHandler;
-    private readonly RouterSocket _router;
-    private readonly NetMQPoller _poller;
-    private readonly Thread _pollerThread;
-    private readonly NetMQQueue<NetMQMessage> _sendQueue;
+    #region Fields
 
-    private long _messagesProcessed;
-    private long _messagesFailed;
+    private RouterSocket _router;
+    private NetMQPoller _poller;
+    private Thread _pollerThread;
     private volatile bool _disposed;
-  
     private static readonly byte[] s_emptyResponse = Array.Empty<byte>();
 
-    public string SendWithValueResponse { get; private set; } = string.Empty;
+    #endregion
 
-    public CommandServer(
-        IOptions<MessageBrokerOptions> options,
-        IServiceProvider serviceProvider,
-        ICommandSerializer commandSerializer,
-        ICommandHandlerProvider messageHandler,
-        IEventAggregator eventAggregator,
-        MeshApplication meshApplication)
+    public void Start(string serverName, bool scaleOut = false)
     {
-        _serviceProvider = serviceProvider;
-        _commandSerializer = commandSerializer;
-        _messageHandler = messageHandler;
-      
         _router = new RouterSocket();
         _router.ReceiveReady += ReceivedFromDealer!;
 
@@ -53,17 +41,25 @@ public sealed class CommandServer : IDisposable
 
         // IPC (Unix domain socket / Named pipe): ~1-2μs latency
         // vs TCP loopback: ~10-50μs latency    
-        _router.Bind($"ipc://{options.Value.ApplicationName}");
-        _router.Bind($"inproc://{options.Value.ApplicationName}");
+        _router.Bind($"ipc://{serverName}");
+        _router.Bind($"inproc://{serverName}");
 
-        // TCP for network communication
-        var port = PortFinder.BindPort((ushort)options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
-        meshApplication.RpcPort = (ushort)port;
-             
-        _poller = new NetMQPoller { _router };
+        // for now we dont allow scaling using tcp
+        if (!scaleOut)
+        {
+            // TCP for network communication
+            var port = PortFinder.BindPort((ushort)options.Value.RPCPort, (ushort)(options.Value.RPCPort + 200), port => _router.Bind($"tcp://*:{port}"));
+            meshApplication.RpcPort = (ushort)port;
+        }
+
+        _poller = new NetMQPoller
+        {
+            _router
+        };
 
         _pollerThread = new Thread(() =>
         {
+            WindowsNetMqOptimizer.OptimizePollerThread();
             _poller.Run();
         })
         {
@@ -112,51 +108,51 @@ public sealed class CommandServer : IDisposable
     /// </summary>
     private void ReceivedFromDealer(object sender, NetMQSocketEventArgs e)
     {
-        var msg = new NetMQMessage();
+        Msg payload = new();
+        Msg routerId = new();
 
-        // Tight loop: drain all available messages without yielding
-        // Improves cache locality and reduces overhead
-        while (e.Socket.TryReceiveMultipartMessage(ref msg, 4))
-        {
-            // Fire-and-forget: offload to thread pool
-            _ = HandleRequestAsync(msg);
-        }
+        routerId.InitPool(8);
+        payload.InitEmpty();
+
+        e.Socket.TryReceive(ref routerId, SendReceiveConstants.InfiniteTimeout);
+        e.Socket.TryReceive(ref payload, SendReceiveConstants.InfiniteTimeout);
+
+        _ = HandleRequestAsync(routerId, payload);
     }
 
     /// <summary>
     /// OPTIMIZED: Zero-copy payload handling with direct buffer access.
     /// </summary>
-    private async ValueTask HandleRequestAsync(NetMQMessage msg)
+    private async ValueTask HandleRequestAsync(Msg routerId, Msg payload)
     {
-        // Zero-copy frame extraction - no allocation
-        var identity = msg[0];
-        var topic = FastConvert.BytesToUlong(msg[1].Buffer);
-        var correlationId = msg[2];
-        var payloadFrame = msg[3];
+        //// Zero-copy frame extraction - no allocation
+        //var identity = msg[0];
+        var topic = FastConvert.BytesToUlong(payload.Slice(0, 8));
+        var payloadFrame = payload.Slice(16, payload.Size - 16);
 
-        // Zero-copy payload wrapping
-        var payload = payloadFrame.Buffer.AsMemory();
-        var handler = _messageHandler.GetHandler(topic);
+        //// Zero-copy payload wrapping        
+        var handler = messageHandler.GetHandler(topic);
 
-        byte[] result;
-        if (handler != null)
+        var result = await handler.Invoke(serviceProvider, commandSerializer, payload.SliceAsMemory().Slice(16, payload.Size - 16));
+
+        _router.Send(ref routerId, true);
+        _router.SendMoreFrameEmpty();
+
+        Span<byte> buffer = stackalloc byte[8 + result.Length];
+
+        // Write Topic and CorrelationId directly
+        payload.Slice(8, 8).CopyTo(buffer.Slice(0));
+
+        if (result.Length > 0)
         {
-            result = await handler.Invoke(_serviceProvider, _commandSerializer, payload);
+            result.Span.CopyTo(buffer.Slice(8));
         }
-        else
-        {
-            // Fast path: no handler = no response
-            result = s_emptyResponse;
-        }
+        // Copy payload
+        payload = new Msg();
+        payload.InitPool(8 + result.Length);
+        buffer.CopyTo(payload);
 
-        // SECRET: Reuse incoming message for response (saves 1 allocation)
-        msg.Clear();
-        msg.Append(identity);
-        msg.AppendEmptyFrame();
-        msg.Append(correlationId);
-        msg.Append(result);
-
-        _router.SendMultipartMessage(msg);
+        _router.Send(ref payload, false);
     }
 
     public void Dispose()
@@ -166,20 +162,11 @@ public sealed class CommandServer : IDisposable
 
         _disposed = true;
 
-        try
-        {
-            _poller.Stop();
-            Thread.Sleep(100);  // Drain in-flight messages
+        WindowsNetMqOptimizer.RestoreSystemTimer();
 
-            _poller.Dispose();
-            _sendQueue.Dispose();
-            _router.Dispose();
 
-            Console.WriteLine($"[HFT] Server disposed. Processed: {_messagesProcessed}, Failed: {_messagesFailed}");
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[HFT] Dispose error: {ex.Message}");
-        }
+        _poller.Stop();
+        _poller.Dispose();
+        _router.Dispose();
     }
 }

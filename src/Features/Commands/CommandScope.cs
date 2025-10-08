@@ -320,25 +320,22 @@ public class CommandScope(
 
         // Rent array from pool to hold PendingReply objects
         var requests = new PendingReply[count];
-
         var writer = new ArrayPoolBufferWriter<byte>();
-
         serializer.Serialize(command, writer);
 
         int requestIndex = 0;
-        foreach (var socketInfo in sockets)
+        foreach (var socket in sockets)
         {
             var pending = new PendingReply();       // Rent a PendingReply object
             commandResponseHandler.RegisterPending(pending); // Register to receive its reply
-            requests[requestIndex++] = pending;           // Store in the rented array
-            pending.Target = socketInfo.Item2.Info;
+            requests[requestIndex++] = pending;           // Store in the rented array                                                     
 
             // Schedule the command to be sent over the socket
             commandSocketManager.ScheduleCommand(new ScheduleCommand
             {
                 CorrelationId = pending.CorrelationId,
                 Topic = topic,
-                Socket = socketInfo.Item2.Socket,
+                Socket = socket,
                 Payload = writer.WrittenMemory
             });
         }

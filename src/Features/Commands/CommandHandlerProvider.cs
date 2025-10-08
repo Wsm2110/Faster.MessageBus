@@ -6,10 +6,10 @@ using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands;
 
-public delegate Task<byte[]> CommandHandlerDelegate(
-       IServiceProvider serviceProvider,
-       ICommandSerializer serializer,
-       ReadOnlyMemory<byte> payload);
+public delegate ValueTask<ReadOnlyMemory<byte>> CommandHandlerDelegate(
+    IServiceProvider serviceProvider,
+    ICommandSerializer serializer,
+    ReadOnlyMemory<byte> payload);
 
 /// <summary>
 /// Manages and dispatches command handlers.
@@ -42,7 +42,7 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
     /// Retrieves the handler function for a specific topic.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public CommandHandlerDelegate? GetHandler(ulong topic)
+    public CommandHandlerDelegate GetHandler(ulong topic)
     {
        return _commandHandlers.TryGetValue(topic, out var handler) ? handler : null;  
     }
@@ -79,7 +79,7 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
 
     // This section remains unchanged from the previous refactor.
     #region Handler Factory Methods
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+ 
     private static CommandHandlerDelegate CreateHandlerForCommand<TCommand>() where TCommand : ICommand
     {
         return async static (serviceProvider, serializer, payload) =>
@@ -91,7 +91,7 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
         };
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+  
     private static CommandHandlerDelegate CreateHandlerForCommandWithResponse<TCommand, TResponse>() where TCommand : ICommand<TResponse>
     {
         return async static (serviceProvider, serializer, payload) =>

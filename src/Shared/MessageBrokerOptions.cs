@@ -7,7 +7,7 @@ namespace Faster.MessageBus.Shared;
 /// </summary>
 public class MessageBrokerOptions
 {
-    public bool? UseSameMachineOptimization { get; set; } = false;
+    public byte ServerInstances  { get; set; }
 
     public bool AutoScan { get; set; } = true;
 

@@ -69,6 +69,12 @@ public record struct MeshContext
     [property: Key(7)]
     public byte[]? CommandRoutingTable { get; set; }
 
+    /// <summary>
+    /// 
+    /// </summary>
+    [property: Key(8)]
+    public byte Hosts { get; set; }
+
     // --- Properties below are for local management and are NOT serialized by MessagePack ---
 
     /// <summary>
@@ -83,4 +89,5 @@ public record struct MeshContext
     /// </summary>
     [IgnoreMember]
     public DateTime LastSeen { get; set; } = DateTime.UtcNow;
+  
 }

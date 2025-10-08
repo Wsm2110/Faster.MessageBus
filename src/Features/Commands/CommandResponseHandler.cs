@@ -18,6 +18,8 @@ public sealed class CommandResponseHandler : ICommandResponseHandler
     // Preallocate to reduce resize operations during market hours
     private readonly ConcurrentDictionary<ulong, PendingReply> _pending = new();
 
+    private static readonly ReadOnlyMemory<byte> _emptyResponse = new ReadOnlyMemory<byte>();
+
     /// <summary>
     /// Registers a pending request with aggressive inlining for minimal overhead.
     /// Hot path: called for every command sent.
@@ -47,21 +49,29 @@ public sealed class CommandResponseHandler : ICommandResponseHandler
     /// </remarks>
     public void ReceivedFromRouter(object sender, NetMQSocketEventArgs e)
     {
-        // Reuse message object to eliminate allocation
-        var msg = new NetMQMessage();
-        // Tight loop: process all queued messages in single batch
-        // Reduces syscall overhead and improves cache locality
-        while (e.Socket.TryReceiveMultipartMessage(ref msg))
-        {
-            // Fast path: direct memory read of correlation ID
-            // Avoid allocation by reading directly from buffer span
-            ulong corrId = MemoryMarshal.Read<ulong>(msg[1].Buffer);
+        Msg payload = new();
+        payload.InitEmpty();
 
-            // Atomic removal with out parameter optimization
-            if (_pending.TryGetValue(corrId, out var pending))
+        e.Socket.TryReceive(ref payload, TimeSpan.Zero);
+        e.Socket.TryReceive(ref payload, TimeSpan.Zero);
+
+        ReadOnlySpan<byte> span = payload.Data;
+
+        // Fast read of correlation ID (8 bytes at offset 8)
+        ulong corrId = MemoryMarshal.Read<ulong>(span.Slice(0, 8));
+
+        // Lookup pending task
+        if (_pending.TryGetValue(corrId, out var pending))
+        {
+            // Wrap the payload in ReadOnlyMemory<byte> without allocating new array
+            if (span.Length > 8)
             {
-                pending.TrySetResult(msg[2].Buffer);           
+                ReadOnlyMemory<byte> result = new ReadOnlyMemory<byte>(payload.Data, 8, payload.Size - 8);
+                pending.TrySetResult(result);
+                return;
             }
+
+            pending.TrySetResult(_emptyResponse);
         }
     }
 }

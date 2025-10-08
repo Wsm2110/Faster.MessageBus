@@ -1,5 +1,4 @@
 ﻿using Faster.MessageBus.Contracts;
-using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Discovery.Contracts;
 using Faster.MessageBus.Features.Events;
@@ -7,6 +6,7 @@ using Faster.MessageBus.Features.Events.Contracts;
 using Faster.MessageBus.Features.Heartbeat.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 /// <summary>
 /// The main, unified entry point for the entire message bus system.
@@ -42,6 +42,12 @@ using Microsoft.Extensions.DependencyInjection;
 /// </remarks>
 public class MessageBroker : IMessageBroker
 {
+    #region Fields
+
+    private readonly IOptions<MessageBrokerOptions> _options;
+
+    #endregion
+
     #region Properties
 
     /// <summary>
@@ -72,11 +78,12 @@ public class MessageBroker : IMessageBroker
         ICommandDispatcher commandDispatcher,
         IServiceProvider serviceProvider,
         IEventAggregator eventAggregator,
+        IOptions<MessageBrokerOptions> options,
         MeshApplication mesh)
     {
         EventDispatcher = eventDispatcher;
         CommandDispatcher = commandDispatcher;
-
+        _options = options;
         ActivateCoreServices(serviceProvider);
         var commandContext = InitializeCommandHandling(serviceProvider);
         InitializeEventHandling(serviceProvider);
@@ -89,11 +96,23 @@ public class MessageBroker : IMessageBroker
     #region Methods
 
     /// <summary>
-    /// Ensures essential singleton services are activated at startup.
+    /// Ensures that essential singleton services are activated during application startup.
+    /// This includes starting the command server host (primary + scale-out instances)
+    /// and initializing the heartbeat monitor for health tracking.
     /// </summary>
+    /// <param name="serviceProvider">The application's dependency injection service provider.</param>
     private void ActivateCoreServices(IServiceProvider serviceProvider)
     {
-        serviceProvider.GetRequiredService<CommandServer>();
+        // Initialize and scale out the command server host
+        var serverHost = serviceProvider.GetRequiredService<ICommandServerHost>();
+        serverHost.Initialize();
+    
+        // Scale out additional command server instances (if configured).
+        // This ensures the message bus can process more commands in parallel by running
+        // multiple Router/Dealer loops, reducing the chance of bottlenecks on a single server.
+        serverHost.ScaleOut();
+
+        // Activate heartbeat monitoring to track service health
         serviceProvider.GetRequiredService<IHeartBeatMonitor>();
     }
 
@@ -151,10 +170,13 @@ public class MessageBroker : IMessageBroker
     {
         var context = mesh.GetMeshContext(routingFilter.GetMembershipTable());
 
+        // determine if we scaled out, mostly due to performance reasons
+        context.Hosts = _options.Value.ServerInstances;
+
         // Start discovery after registration
         serviceProvider.GetRequiredService<IMeshDiscoveryService>().Start(context);
 
-        context.Self = true;
+        context.Self = true;     
 
         // Register self to socket managers
         eventAggregator.Publish(new MeshJoined(context));

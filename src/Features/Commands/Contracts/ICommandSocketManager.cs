@@ -41,7 +41,7 @@ public interface ICommandSocketManager : IDisposable
     /// Only sockets whose routing table contains the specified <paramref name="topic"/> are returned.
     /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
     /// </remarks>
-    IEnumerable<(ulong Id, (MeshContext Info, DealerSocket Socket))> Get(int count, ulong topic);
+    IEnumerable<DealerSocket> Get(int count, ulong topic);
 
     /// <summary>
     /// Schedules the removal of the socket for a specified mesh node.
