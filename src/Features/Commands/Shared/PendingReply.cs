@@ -1,6 +1,7 @@
 ﻿using Faster.MessageBus.Shared;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Threading.Tasks.Sources;
 
 namespace Faster.MessageBus.Features.Commands.Shared;
@@ -83,8 +84,12 @@ public sealed class PendingReply : IValueTaskSource<ReadOnlyMemory<byte>>
     /// This is crucial when pooling <see cref="PendingReply{T}"/> instances.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Reset() => _core.Reset();
-
+    public void Reset()
+    {
+        _completed = 0;
+        CorrelationId = (ulong)Interlocked.Increment(ref _counter);
+        _core.Reset();
+    }
     /// <summary>
     /// Gets the result of the operation. This is called by the awaiter of the <see cref="ValueTask{TResult}"/>.
     /// </summary>

@@ -1,12 +1,14 @@
-﻿using Faster.MessageBus.Contracts;
+﻿using CommunityToolkit.HighPerformance.Buffers;
+using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Shared;
 using Microsoft.Extensions.DependencyInjection;
+using System.Buffers;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands;
 
-public delegate ValueTask<ReadOnlyMemory<byte>> CommandHandlerDelegate(
+public delegate Task<ReadOnlyMemory<byte>> CommandHandlerDelegate(
     IServiceProvider serviceProvider,
     ICommandSerializer serializer,
     ReadOnlyMemory<byte> payload);
@@ -44,7 +46,7 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public CommandHandlerDelegate GetHandler(ulong topic)
     {
-       return _commandHandlers.TryGetValue(topic, out var handler) ? handler : null;  
+        return _commandHandlers.TryGetValue(topic, out var handler) ? handler : null;
     }
 
     /// <summary>
@@ -79,27 +81,27 @@ internal class CommandHandlerProvider : ICommandHandlerProvider
 
     // This section remains unchanged from the previous refactor.
     #region Handler Factory Methods
- 
+
     private static CommandHandlerDelegate CreateHandlerForCommand<TCommand>() where TCommand : ICommand
     {
         return async static (serviceProvider, serializer, payload) =>
         {
             var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand>>();
-            var command = (TCommand)serializer.Deserialize<ICommand>(payload);
+            var command = serializer.Deserialize<TCommand>(payload);
             await handler.Handle(command, CancellationToken.None);
             return _emptyPayload;
         };
     }
 
-  
+
     private static CommandHandlerDelegate CreateHandlerForCommandWithResponse<TCommand, TResponse>() where TCommand : ICommand<TResponse>
     {
         return async static (serviceProvider, serializer, payload) =>
-        {         
-                var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand, TResponse>>();
-                var command = (TCommand)serializer.Deserialize<ICommand<TResponse>>(payload);
-                var result = await handler.Handle(command, CancellationToken.None);
-                return serializer.Serialize(result);         
+        {
+            var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand, TResponse>>();
+            var command = serializer.Deserialize<TCommand>(payload);
+            var result = await handler.Handle(command, CancellationToken.None);
+            return serializer.Serialize(result);
         };
     }
 

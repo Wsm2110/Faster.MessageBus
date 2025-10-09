@@ -5,9 +5,6 @@ using Faster.MessageBus.Shared;
 using Microsoft.Extensions.Options;
 using NetMQ;
 using NetMQ.Sockets;
-using System;
-using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands;
 
@@ -108,8 +105,8 @@ public sealed class CommandServer(
     /// </summary>
     private void ReceivedFromDealer(object sender, NetMQSocketEventArgs e)
     {
-        Msg payload = new();
-        Msg routerId = new();
+        Msg payload = default;
+        Msg routerId = default;
 
         routerId.InitPool(8);
         payload.InitEmpty();
@@ -126,7 +123,6 @@ public sealed class CommandServer(
     private async ValueTask HandleRequestAsync(Msg routerId, Msg payload)
     {
         //// Zero-copy frame extraction - no allocation
-        //var identity = msg[0];
         var topic = FastConvert.BytesToUlong(payload.Slice(0, 8));
         var payloadFrame = payload.Slice(16, payload.Size - 16);
 
@@ -135,23 +131,22 @@ public sealed class CommandServer(
 
         var result = await handler.Invoke(serviceProvider, commandSerializer, payload.SliceAsMemory().Slice(16, payload.Size - 16));
 
-        _router.Send(ref routerId, true);
-        _router.SendMoreFrameEmpty();
-
         Span<byte> buffer = stackalloc byte[8 + result.Length];
 
         // Write Topic and CorrelationId directly
         payload.Slice(8, 8).CopyTo(buffer.Slice(0));
-
         if (result.Length > 0)
         {
             result.Span.CopyTo(buffer.Slice(8));
         }
+
         // Copy payload
-        payload = new Msg();
+        payload = default;
         payload.InitPool(8 + result.Length);
         buffer.CopyTo(payload);
 
+        _router.Send(ref routerId, true);
+        _router.SendMoreFrameEmpty();
         _router.Send(ref payload, false);
     }
 

@@ -1,8 +1,10 @@
-﻿using CommunityToolkit.HighPerformance.Buffers;
+﻿using CommunityToolkit.HighPerformance;
+using CommunityToolkit.HighPerformance.Buffers;
 using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands;
@@ -19,6 +21,8 @@ public class CommandScope(
 {
     // Cached exception instances for performance optimization to avoid frequent allocations
     private static readonly OperationCanceledException s_cachedOperationCanceledException = new("Operation was canceled due to timeout.");
+    private static readonly ThreadLocalBufferWriter _writer = new ThreadLocalBufferWriter();
+    private static readonly ObjectPool _pool = new(1024);
 
     /// <summary>
     /// Prepares a strongly-typed command for dispatch, returning a scope builder
@@ -167,11 +171,6 @@ public class CommandScope(
     {
         // Scatter the command and get the context for the pending replies.
         using var context = Scatter(command, timeout, ct);
-        if (context.RequestCount == 0)
-        {
-            return;
-        }
-
         // Gather Phase: Await each operation and clean up its resources as it completes.
         for (int i = 0; i < context.RequestCount; i++)
         {
@@ -182,11 +181,8 @@ public class CommandScope(
             }
             catch (OperationCanceledException e)
             {
-                OnTimeout?.Invoke(e, pending.Target);
-            }
-            finally
-            {
                 commandResponseHandler.TryUnregister(pending.CorrelationId);
+                OnTimeout?.Invoke(e, pending.Target);
             }
         }
     }
@@ -310,23 +306,26 @@ public class CommandScope(
     private ScatterContext Scatter<T>(T command, TimeSpan timeout, CancellationToken ct) where T : ICommand
     {
         var count = commandSocketManager.Count;
-        if (count == 0) return ScatterContext.Empty;
+        if (count == 0)
+        {
+            return ScatterContext.Empty;
+        }
 
+        var concreteCommandType = command.GetType();
         // Compute topic hash for the command type
-        var topic = WyHash.Hash(command.GetType().Name);
-
+        var topic = WyHash.Hash(concreteCommandType.Name);
         // Get eligible sockets for this command
         var sockets = commandSocketManager.Get(count, topic);
 
         // Rent array from pool to hold PendingReply objects
-        var requests = new PendingReply[count];
-        var writer = new ArrayPoolBufferWriter<byte>();
-        serializer.Serialize(command, writer);
+        var requests = ArrayPool<PendingReply>.Shared.Rent(count);
+
+        serializer.Serialize(command, concreteCommandType, _writer.Writer);
 
         int requestIndex = 0;
         foreach (var socket in sockets)
         {
-            var pending = new PendingReply();       // Rent a PendingReply object
+            var pending = _pool.Rent();      // Rent a PendingReply object
             commandResponseHandler.RegisterPending(pending); // Register to receive its reply
             requests[requestIndex++] = pending;           // Store in the rented array                                                     
 
@@ -336,7 +335,7 @@ public class CommandScope(
                 CorrelationId = pending.CorrelationId,
                 Topic = topic,
                 Socket = socket,
-                Payload = writer.WrittenMemory
+                Payload = _writer.Writer.WrittenMemory
             });
         }
 
@@ -350,14 +349,11 @@ public class CommandScope(
             for (int i = 0; i < count; i++)
             {
                 ref var pending = ref requests[i];
-                if (!pending.IsCompleted)
-                {
-                    pending.SetException(s_cachedOperationCanceledException);
-                }
+                pending.SetException(s_cachedOperationCanceledException);
             }
         });
 
-        return new ScatterContext(requests, requestIndex, linkedCts, registration, writer);
+        return new ScatterContext(requests, requestIndex, linkedCts, registration, _writer.Writer);
     }
 
     /// <summary>
@@ -401,9 +397,14 @@ public class CommandScope(
             _timeoutRegistration.Dispose();
             // Dispose linked CTS
             _linkedCts?.Dispose();
-            // Return rented array to pool
-            _writer.Dispose();
-            // ArrayPool<PendingReply>.Shared.Return(Requests, clearArray: true);
+            _writer.Clear();
+
+            for (int i = 0; i < RequestCount; i++)
+            {
+                _pool.Return(Requests[i]);
+            }
+
+            ArrayPool<PendingReply>.Shared.Return(Requests);
         }
     }
 }

@@ -20,7 +20,8 @@
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<AssemblyOriginatorKeyFile>Faster.snk</AssemblyOriginatorKeyFile>
-		
+    <SignAssembly>true</SignAssembly>
+    
 		<!-- Debugging & SourceLink -->
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>

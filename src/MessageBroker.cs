@@ -1,4 +1,5 @@
 ﻿using Faster.MessageBus.Contracts;
+using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Discovery.Contracts;
 using Faster.MessageBus.Features.Events;
@@ -106,7 +107,7 @@ public class MessageBroker : IMessageBroker
         // Initialize and scale out the command server host
         var serverHost = serviceProvider.GetRequiredService<ICommandServerHost>();
         serverHost.Initialize();
-    
+
         // Scale out additional command server instances (if configured).
         // This ensures the message bus can process more commands in parallel by running
         // multiple Router/Dealer loops, reducing the chance of bottlenecks on a single server.
@@ -130,6 +131,8 @@ public class MessageBroker : IMessageBroker
 
         return commandContext;
     }
+
+
 
     /// <summary>
     /// Scans for all event types and initializes the event handler provider.
@@ -176,7 +179,7 @@ public class MessageBroker : IMessageBroker
         // Start discovery after registration
         serviceProvider.GetRequiredService<IMeshDiscoveryService>().Start(context);
 
-        context.Self = true;     
+        context.Self = true;
 
         // Register self to socket managers
         eventAggregator.Publish(new MeshJoined(context));

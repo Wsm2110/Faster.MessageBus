@@ -195,19 +195,16 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// </summary>
     private void OnSocketReceived(object? sender, NetMQQueueEventArgs<SocketCommand> e)
     {
-        while (_socketManagerQueue.TryDequeue(out var command, TimeSpan.Zero))
+        var command = _socketManagerQueue.Dequeue();
+        if (command.Type == CommandType.AddSocket)
         {
-            switch (command.Type)
-            {
-                case CommandType.AddSocket:
-                    Interlocked.Increment(ref _count);
-                    HandleAddSocket(command.MeshInfo);
-                    break;
-                case CommandType.RemoveSocket:
-                    Interlocked.Decrement(ref _count);
-                    HandleRemoveSocket(command.MeshInfo);
-                    break;
-            }
+            Interlocked.Increment(ref _count);
+            HandleAddSocket(command.MeshInfo);
+        }
+        else if (command.Type == CommandType.RemoveSocket)
+        {
+            Interlocked.Decrement(ref _count);
+            HandleRemoveSocket(command.MeshInfo);
         }
     }
 
@@ -216,18 +213,18 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// </summary>
     private void OnCommandReceived(object? sender, NetMQQueueEventArgs<ScheduleCommand> e)
     {
-        while (_commandSchedulerQueue.TryDequeue(out var command, TimeSpan.Zero))
-        {
-            Span<byte> buffer = stackalloc byte[16 + command.Payload.Length];
+        var command = _commandSchedulerQueue.Dequeue();
 
-            // Write Topic and CorrelationId directly
-            Unsafe.As<byte, ulong>(ref buffer[0]) = command.Topic;
-            Unsafe.As<byte, ulong>(ref buffer[8]) = command.CorrelationId;
+        Span<byte> buffer = stackalloc byte[16 + command.Payload.Length];
 
-            // Copy payload
-            command.Payload.Span.CopyTo(buffer.Slice(16));
-            command.Socket.SendSpanFrame(buffer);
-        }
+        // Write Topic and CorrelationId directly
+        Unsafe.As<byte, ulong>(ref buffer[0]) = command.Topic;
+        Unsafe.As<byte, ulong>(ref buffer[8]) = command.CorrelationId;
+
+        // Copy payload
+        command.Payload.Span.CopyTo(buffer.Slice(16));
+        command.Socket.SendSpanFrame(buffer);
+
     }
     #endregion
 
@@ -293,8 +290,6 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
             return pool;
         });
     }
-
-
 
     private string DetermineEndpoint(TransportMode transport, MeshContext context, byte count)
     {

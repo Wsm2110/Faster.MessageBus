@@ -1,5 +1,6 @@
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
+using CommandBenchmark;
 
 namespace BenchmarkSuite1
 {

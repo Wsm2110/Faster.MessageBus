@@ -57,21 +57,25 @@ public sealed class CommandResponseHandler : ICommandResponseHandler
 
         ReadOnlySpan<byte> span = payload.Data;
 
-        // Fast read of correlation ID (8 bytes at offset 8)
-        ulong corrId = MemoryMarshal.Read<ulong>(span.Slice(0, 8));
+        // Fast correlation ID read
+        ulong corrId = MemoryMarshal.Read<ulong>(span);
 
-        // Lookup pending task
-        if (_pending.TryGetValue(corrId, out var pending))
+        // Hot path optimization - check size first to avoid dictionary lookup on empty messages
+        if (span.Length == 8)
         {
-            // Wrap the payload in ReadOnlyMemory<byte> without allocating new array
-            if (span.Length > 8)
+            if (_pending.TryRemove(corrId, out var emptyPending))
             {
-                ReadOnlyMemory<byte> result = new ReadOnlyMemory<byte>(payload.Data, 8, payload.Size - 8);
-                pending.TrySetResult(result);
-                return;
+                emptyPending.TrySetResult(_emptyResponse);
             }
+            return;
+        }
 
-            pending.TrySetResult(_emptyResponse);
+        // Remove from dictionary immediately to free up space
+        if (_pending.TryRemove(corrId, out var pending))
+        {
+            // Zero-copy memory wrapping
+            ReadOnlyMemory<byte> result = new ReadOnlyMemory<byte>(payload.Data, 8, payload.Size - 8);
+            pending.TrySetResult(result);
         }
     }
 }
