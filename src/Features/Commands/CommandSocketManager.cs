@@ -23,7 +23,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     private static readonly string s_localMachineName = Environment.MachineName.ToLowerInvariant();
     private static readonly string s_localWorkstationName = System.Environment.GetEnvironmentVariables()["COMPUTERNAME"]?.ToString()?.ToLowerInvariant()
         ?? s_localMachineName;
-   
+
     /// <summary>
     /// Defines the type of socket operation to be performed by the worker thread.
     /// </summary>
@@ -103,6 +103,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
 
         _pollerThread = new Thread(() =>
         {
+            WindowsNetMqOptimizer.OptimizePollerThread();
             _poller.Run();
         })
         {
@@ -216,15 +217,20 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     {
         var command = _commandSchedulerQueue.Dequeue();
 
-        Span<byte> buffer = stackalloc byte[16 + command.Payload.Length];
+        Span<byte> buffer = stackalloc byte[16];
+
+        var msg = new Msg();
+        msg.InitPool(16 + command.Payload.Length);
+
+        Span<byte> span = msg.Data; // zero-copy access to internal buffer
 
         // Write Topic and CorrelationId directly
-        Unsafe.As<byte, ulong>(ref buffer[0]) = command.Topic;
-        Unsafe.As<byte, ulong>(ref buffer[8]) = command.CorrelationId;
+        Unsafe.As<byte, ulong>(ref span[0]) = command.Topic;
+        Unsafe.As<byte, ulong>(ref span[8]) = command.CorrelationId;
 
-        // Copy payload
-        command.Payload.Span.CopyTo(buffer.Slice(16));
-        command.Socket.SendSpanFrame(buffer);
+        // Copy payload directly into Msg memory
+        command.Payload.Span.CopyTo(span.Slice(16));
+        command.Socket.Send(ref msg, false);
     }
     #endregion
 

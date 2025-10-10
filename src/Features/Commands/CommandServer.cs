@@ -5,6 +5,8 @@ using Faster.MessageBus.Shared;
 using Microsoft.Extensions.Options;
 using NetMQ;
 using NetMQ.Sockets;
+using System.Drawing;
+using System.Xml.Linq;
 
 namespace Faster.MessageBus.Features.Commands;
 
@@ -124,30 +126,26 @@ public sealed class CommandServer(
     {
         //// Zero-copy frame extraction - no allocation
         var topic = FastConvert.BytesToUlong(payload.Slice(0, 8));
-        var payloadFrame = payload.Slice(16, payload.Size - 16);
 
         //// Zero-copy payload wrapping        
         var handler = messageHandler.GetHandler(topic);
-
         var result = await handler.Invoke(serviceProvider, commandSerializer, payload.SliceAsMemory().Slice(16, payload.Size - 16));
 
-        Span<byte> buffer = stackalloc byte[8 + result.Length];
+        // Copy payload
+        var reply = new Msg();
+        reply.InitPool(8 + result.Length);
 
-        // Write Topic and CorrelationId directly
-        payload.Slice(8, 8).CopyTo(buffer.Slice(0));
+        // Write CorrelationId directly
+        payload.Slice(8, 8).CopyTo(reply);
+       
         if (result.Length > 0)
         {
-            result.Span.CopyTo(buffer.Slice(8));
+            result.Span.CopyTo(reply.Slice(8));
         }
-
-        // Copy payload
-        payload = default;
-        payload.InitPool(8 + result.Length);
-        buffer.CopyTo(payload);
-
+               
         _router.Send(ref routerId, true);
         _router.SendMoreFrameEmpty();
-        _router.Send(ref payload, false);
+        _router.Send(ref reply, false);
     }
 
     public void Dispose()
