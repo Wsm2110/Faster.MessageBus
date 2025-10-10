@@ -21,7 +21,6 @@ public class CommandScope(
 {
     // Cached exception instances for performance optimization to avoid frequent allocations
     private static readonly OperationCanceledException s_cachedOperationCanceledException = new("Operation was canceled due to timeout.");
-    private static readonly ThreadLocalBufferWriter _writer = new ThreadLocalBufferWriter();
     private static readonly ObjectPool _pool = new(1024);
 
     /// <summary>
@@ -320,7 +319,8 @@ public class CommandScope(
         // Rent array from pool to hold PendingReply objects
         var requests = ArrayPool<PendingReply>.Shared.Rent(count);
 
-        serializer.Serialize(command, concreteCommandType, _writer.Writer);
+        ArrayPoolBufferWriter<byte> _writer = new();
+        serializer.Serialize(command, concreteCommandType, _writer);
 
         int requestIndex = 0;
         foreach (var socket in sockets)
@@ -335,7 +335,7 @@ public class CommandScope(
                 CorrelationId = pending.CorrelationId,
                 Topic = topic,
                 Socket = socket,
-                Payload = _writer.Writer.WrittenMemory
+                Payload = _writer.WrittenMemory
             });
         }
 
@@ -353,7 +353,7 @@ public class CommandScope(
             }
         });
 
-        return new ScatterContext(requests, requestIndex, linkedCts, registration, _writer.Writer);
+        return new ScatterContext(requests, requestIndex, linkedCts, registration, _writer);
     }
 
     /// <summary>
@@ -397,6 +397,7 @@ public class CommandScope(
             _timeoutRegistration.Dispose();
             // Dispose linked CTS
             _linkedCts?.Dispose();
+
             _writer.Clear();
 
             for (int i = 0; i < RequestCount; i++)

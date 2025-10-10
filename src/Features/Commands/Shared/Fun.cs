@@ -1,19 +1,4 @@
-﻿using CommunityToolkit.HighPerformance.Buffers;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Faster.MessageBus.Features.Commands.Shared;
-
-public class ThreadLocalBufferWriter
-{
-    private readonly ThreadLocal<ArrayPoolBufferWriter<byte>> _threadWriters =
-        new(() => new ArrayPoolBufferWriter<byte>(1024));
-
-    public ArrayPoolBufferWriter<byte> Writer => _threadWriters.Value;
-}
+﻿namespace Faster.MessageBus.Features.Commands.Shared;
 
 public class VyukovMPMCQueue
 {

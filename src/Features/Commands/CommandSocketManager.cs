@@ -1,5 +1,4 @@
-﻿using CommunityToolkit.HighPerformance;
-using Faster.MessageBus.Contracts;
+﻿using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
@@ -9,7 +8,7 @@ using NetMQ;
 using NetMQ.Sockets;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-
+using System.Runtime.InteropServices;
 
 /// <summary>
 /// A self-contained, high-performance processor that manages a collection of <see cref="DealerSocket"/> instances
@@ -24,6 +23,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     private static readonly string s_localMachineName = Environment.MachineName.ToLowerInvariant();
     private static readonly string s_localWorkstationName = System.Environment.GetEnvironmentVariables()["COMPUTERNAME"]?.ToString()?.ToLowerInvariant()
         ?? s_localMachineName;
+   
     /// <summary>
     /// Defines the type of socket operation to be performed by the worker thread.
     /// </summary>
@@ -32,6 +32,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// <summary>
     /// A lightweight, non-allocating struct used to command the worker thread for socket operations.
     /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
     private readonly struct SocketCommand
     {
         public readonly CommandType Type;
@@ -224,7 +225,6 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         // Copy payload
         command.Payload.Span.CopyTo(buffer.Slice(16));
         command.Socket.SendSpanFrame(buffer);
-
     }
     #endregion
 
