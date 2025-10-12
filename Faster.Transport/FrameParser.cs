@@ -1,32 +1,25 @@
-﻿using System;
+﻿using Faster.Transport.Primitives;
 using System.Buffers;
 using System.Buffers.Binary;
 
-/// <summary>
-/// High-performance, zero-allocation frame parser using a circular (ring) buffer.
-/// Each frame is prefixed with a 4-byte little-endian length header.
-/// </summary>
-/// <remarks>
-/// Designed for TCP streams where frame boundaries are not guaranteed.
-/// Efficiently handles frames that span across the end of the buffer.
-/// </remarks>
 public sealed class FrameParserRing : IDisposable
 {
     private readonly byte[] _buffer;
-    private readonly byte[] _tempBuffer; // reused for wrapped frames
-    private int _head;   // write position
-    private int _tail;   // read position
-    private int _length; // bytes currently in buffer
+    private readonly byte[] _tempBuffer;
+    private readonly SpscRingBuffer<ReadOnlyMemory<byte>> _frames = new(4096);
     private readonly int _capacity;
+    private readonly int _mask; // _capacity - 1 (for bitmask wrapping)
+    private int _head;
+    private int _tail;
+    private int _length;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="FrameParserRing"/> class.
-    /// </summary>
-    /// <param name="capacity">Total ring buffer capacity (default 64 KB).</param>
-    /// <param name="tempBufferSize">Reusable buffer for frames that wrap around (default 64 KB).</param>
     public FrameParserRing(int capacity = 65536, int tempBufferSize = 65536)
     {
+        if (!IsPowerOfTwo(capacity))
+            throw new ArgumentException("Capacity must be a power of two.", nameof(capacity));
+
         _capacity = capacity;
+        _mask = capacity - 1;
         _buffer = ArrayPool<byte>.Shared.Rent(capacity);
         _tempBuffer = ArrayPool<byte>.Shared.Rent(tempBufferSize);
         _head = 0;
@@ -34,14 +27,7 @@ public sealed class FrameParserRing : IDisposable
         _length = 0;
     }
 
-    /// <summary>
-    /// Feeds raw bytes into the parser.
-    /// Emits complete frames via the <paramref name="onFrame"/> callback.
-    /// </summary>
-    /// <param name="data">Span of received data to append.</param>
-    /// <param name="onFrame">Callback invoked for each complete frame.</param>
-    /// <exception cref="InvalidOperationException">Thrown if the input exceeds buffer capacity.</exception>
-    public void Feed(ReadOnlySpan<byte> data, Action<ReadOnlyMemory<byte>> onFrame)
+    public void Feed(ReadOnlySpan<byte> data)
     {
         int dataPos = 0;
 
@@ -51,7 +37,6 @@ public sealed class FrameParserRing : IDisposable
             if (writable == 0)
                 throw new InvalidOperationException("FrameParserRing buffer overflow — frame too large for capacity.");
 
-            // Copy into ring (wrap if needed)
             int firstPart = Math.Min(writable, _capacity - _head);
             data.Slice(dataPos, firstPart).CopyTo(_buffer.AsSpan(_head, firstPart));
 
@@ -59,23 +44,20 @@ public sealed class FrameParserRing : IDisposable
             if (remaining > 0)
                 data.Slice(dataPos + firstPart, remaining).CopyTo(_buffer.AsSpan(0, remaining));
 
-            _head = (_head + writable) % _capacity;
+            _head = (_head + writable) & _mask;
             _length += writable;
             dataPos += writable;
 
-            // Try to parse complete frames
-            ParseFrames(onFrame);
+            ParseFrames();
         }
     }
 
-    /// <summary>
-    /// Extracts and emits complete frames from the ring buffer.
-    /// </summary>
-    private void ParseFrames(Action<ReadOnlyMemory<byte>> onFrame)
+    public bool TryReadFrame(out ReadOnlyMemory<byte> frame) => _frames.TryDequeue(out frame);
+
+    private void ParseFrames()
     {
         while (_length >= 4)
         {
-            // Read 4-byte little-endian frame length (may wrap)
             int len;
             if (_tail + 4 <= _capacity)
             {
@@ -86,34 +68,30 @@ public sealed class FrameParserRing : IDisposable
                 Span<byte> tmp = stackalloc byte[4];
                 int first = _capacity - _tail;
                 _buffer.AsSpan(_tail, first).CopyTo(tmp);
-                _buffer.AsSpan(0, 4 - first).CopyTo(tmp.Slice(first));
+                _buffer.AsSpan(0, 4 - first).CopyTo(tmp[first..]);
                 len = BinaryPrimitives.ReadInt32LittleEndian(tmp);
             }
 
-            // Validate frame size
             if (len <= 0 || len > _capacity)
             {
                 Reset();
                 throw new InvalidOperationException($"Corrupted frame length: {len}");
             }
 
-            // Wait for full frame data
             if (_length < 4 + len)
                 break;
 
-            int headerEnd = (_tail + 4) % _capacity;
+            int headerEnd = (_tail + 4) & _mask;
             int availableAfterHeader = _capacity - headerEnd;
 
             ReadOnlyMemory<byte> frame;
 
             if (headerEnd + len <= _capacity)
             {
-                // Contiguous frame
                 frame = new ReadOnlyMemory<byte>(_buffer, headerEnd, len);
             }
             else
             {
-                // Wrapped frame
                 int firstPart = Math.Min(len, availableAfterHeader);
                 int secondPart = len - firstPart;
 
@@ -124,31 +102,30 @@ public sealed class FrameParserRing : IDisposable
                 frame = new ReadOnlyMemory<byte>(_tempBuffer, 0, len);
             }
 
-            // Deliver frame
-            onFrame(frame);
+            SpinWait sw = new();
+            while (!_frames.TryEnqueue(frame))
+            {
+                sw.SpinOnce();
+            }
 
-            // Advance
-            _tail = (_tail + 4 + len) % _capacity;
+            _tail = (_tail + 4 + len) & _mask;
             _length -= 4 + len;
         }
     }
 
-    /// <summary>
-    /// Clears the buffer and resets parser state.
-    /// </summary>
     public void Reset()
     {
         _head = 0;
         _tail = 0;
         _length = 0;
+        _frames.Clear();
     }
 
-    /// <summary>
-    /// Releases all buffers back to the shared pool.
-    /// </summary>
     public void Dispose()
     {
         ArrayPool<byte>.Shared.Return(_buffer);
         ArrayPool<byte>.Shared.Return(_tempBuffer);
     }
+
+    private static bool IsPowerOfTwo(int value) => (value & (value - 1)) == 0;
 }

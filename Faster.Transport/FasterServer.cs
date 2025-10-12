@@ -1,25 +1,24 @@
 ﻿using Faster.Transport;
-using System;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
+
+namespace Faster.Transport;
 
 /// <summary>
 /// A high-performance asynchronous TCP server that accepts multiple clients
 /// and wraps each connection in a <see cref="FasterClient"/> for framed message I/O.
 /// </summary>
 /// <remarks>
-/// Uses <see cref="SocketAsyncEventArgs"/> for non-blocking accepts
-/// and a thread-safe client registry based on <see cref="ConcurrentDictionary{TKey, TValue}"/>.
-/// Designed for zero-allocation operation, linear scalability, and clean resource disposal.
+/// Uses <see cref="SocketAsyncEventArgs"/> for non-blocking accepts and a thread-safe
+/// <see cref="ConcurrentDictionary{TKey, TValue}"/> to track connected clients.
+/// Designed for low latency, zero-allocation data paths, and clean resource disposal.
 /// </remarks>
 public sealed class FasterServer : IDisposable
 {
     private readonly Socket _listener;
     private readonly CancellationTokenSource _cts = new();
-    private readonly ConcurrentDictionary<int, FasterClient> _clients = new();
+    private readonly ConcurrentDictionary<int, IConnection> _clients = new();
     private SocketAsyncEventArgs? _acceptArgs;
     private int _clientCounter;
     private bool _isRunning;
@@ -27,54 +26,59 @@ public sealed class FasterServer : IDisposable
     /// <summary>
     /// Occurs when a new client successfully connects to the server.
     /// </summary>
-    public event Action<FasterClient>? ClientConnected;
+    public event Action<IConnection>? ClientConnected;
 
     /// <summary>
     /// Occurs when a connected client disconnects or encounters an error.
     /// </summary>
-    public event Action<FasterClient, Exception?>? ClientDisconnected;
+    public event Action<IConnection, Exception?>? ClientDisconnected;
 
     /// <summary>
     /// Occurs when a complete framed message is received from any connected client.
     /// </summary>
-    public event Action<FasterClient, ReadOnlyMemory<byte>>? OnReceived;
+    public event Action<IConnection, ReadOnlyMemory<byte>>? OnReceived;
 
     /// <summary>
-    /// Initializes and binds a new <see cref="FasterServer"/> instance to the specified endpoint.
+    /// Initializes a new instance of the <see cref="FasterServer"/> class and binds it to the specified endpoint.
     /// </summary>
-    /// <param name="bindEndPoint">The <see cref="EndPoint"/> to bind and listen on.</param>
-    /// <param name="backlog">The maximum number of pending connection requests (default = 100).</param>
+    /// <param name="bindEndPoint">The network <see cref="EndPoint"/> to bind and listen on.</param>
+    /// <param name="backlog">Maximum number of pending connections (default = 100).</param>
     public FasterServer(EndPoint bindEndPoint, int backlog = 100)
     {
-        _listener = new Socket(bindEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-        _listener.NoDelay = true; // Disable Nagle's algorithm for low-latency  
+        _listener = new Socket(bindEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+        {
+            NoDelay = true // Disable Nagle's algorithm for low-latency transmission.
+        };
+
         _listener.Bind(bindEndPoint);
         _listener.Listen(backlog);
     }
 
     /// <summary>
-    /// Starts the server and begins asynchronously accepting incoming client connections.
+    /// Starts the server and begins asynchronously accepting client connections.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown if the server is already running.</exception>
     public void Start()
     {
         if (_isRunning)
+        {
             throw new InvalidOperationException("Server is already running.");
+        }
 
         _isRunning = true;
 
-        // Initialize a single reusable accept args instance for all async accept operations.
+        // Initialize a reusable accept event args instance for efficient async accepts.
         _acceptArgs = new SocketAsyncEventArgs();
         _acceptArgs.Completed += AcceptCompleted;
 
-        // Begin the accept loop.
+        // Begin the first asynchronous accept operation.
         AcceptNext(_acceptArgs);
     }
 
     /// <summary>
-    /// Broadcasts a single message payload to all currently connected clients.
+    /// Broadcasts a message to all connected clients.
     /// </summary>
-    /// <param name="payload">The binary payload to send.</param>
+    /// <param name="payload">The message payload to send to all clients.</param>
     public void Broadcast(ReadOnlyMemory<byte> payload)
     {
         foreach (var client in _clients.Values)
@@ -85,15 +89,15 @@ public sealed class FasterServer : IDisposable
             }
             catch
             {
-                // Ignore transient send errors — clients clean up on disconnect.
+                // Ignore transient send failures; clients will be removed on disconnect.
             }
         }
     }
 
     /// <summary>
-    /// Disconnects and disposes a specific client by reference.
+    /// Disconnects and disposes a specific client.
     /// </summary>
-    /// <param name="client">The target <see cref="FasterClient"/> instance to disconnect.</param>
+    /// <param name="client">The <see cref="FasterClient"/> instance to disconnect.</param>
     public void DisconnectClient(FasterClient client)
     {
         foreach (var kv in _clients)
@@ -108,9 +112,9 @@ public sealed class FasterServer : IDisposable
     }
 
     /// <summary>
-    /// Initiates the next asynchronous accept operation.
-    /// This pattern reuses a single <see cref="SocketAsyncEventArgs"/> object for efficiency.
+    /// Begins an asynchronous accept operation using a reusable <see cref="SocketAsyncEventArgs"/>.
     /// </summary>
+    /// <param name="e">The event args object reused for accept operations.</param>
     private void AcceptNext(SocketAsyncEventArgs e)
     {
         if (!_isRunning || _cts.IsCancellationRequested)
@@ -119,32 +123,37 @@ public sealed class FasterServer : IDisposable
             return;
         }
 
-        // Reset for next accept
+        // Reset for reuse.
         e.AcceptSocket = null;
 
         try
         {
-            // Begin async accept; if completed synchronously, handle immediately.
+            // Start async accept. If it completes synchronously, process immediately.
             bool pending = _listener.AcceptAsync(e);
             if (!pending)
+            {
                 ProcessAccept(e);
+            }
         }
         catch (ObjectDisposedException)
         {
-            // Listener closed while awaiting accept — safe to exit.
+            // Listener closed while waiting; safe to ignore.
             e.Dispose();
         }
         catch (Exception ex)
         {
-            // Log and retry on transient errors.
+            // Retry on transient errors.
             if (_isRunning)
             {
                 Console.Error.WriteLine($"[FasterServer] AcceptNext failed: {ex.Message}");
+
                 _ = Task.Delay(100, _cts.Token)
                     .ContinueWith(t =>
                     {
                         if (!t.IsCanceled)
+                        {
                             AcceptNext(e);
+                        }
                     }, TaskScheduler.Default);
             }
             else
@@ -155,7 +164,7 @@ public sealed class FasterServer : IDisposable
     }
 
     /// <summary>
-    /// Callback invoked when an asynchronous accept completes.
+    /// Handles completion of an asynchronous accept operation.
     /// </summary>
     private void AcceptCompleted(object? sender, SocketAsyncEventArgs e)
     {
@@ -169,9 +178,9 @@ public sealed class FasterServer : IDisposable
     }
 
     /// <summary>
-    /// Handles a completed accept operation and wires up the new client connection.
+    /// Processes a successfully accepted client connection and wires up its events.
     /// </summary>
-    /// <param name="e">The <see cref="SocketAsyncEventArgs"/> holding the accepted socket.</param>
+    /// <param name="e">The <see cref="SocketAsyncEventArgs"/> containing the accepted socket.</param>
     private void ProcessAccept(SocketAsyncEventArgs e)
     {
         if (!_isRunning || _cts.IsCancellationRequested)
@@ -180,7 +189,7 @@ public sealed class FasterServer : IDisposable
             return;
         }
 
-        // Check for socket errors
+        // Validate socket result.
         if (e.SocketError != SocketError.Success || e.AcceptSocket == null)
         {
             try { e.AcceptSocket?.Close(); } catch { }
@@ -192,30 +201,33 @@ public sealed class FasterServer : IDisposable
         var clientId = Interlocked.Increment(ref _clientCounter);
         var client = new FasterClient(socket);
 
-        // Register client and wire up event forwarding.
+        // Register the client in the active collection.
         _clients[clientId] = client;
 
+        // Forward client events to server-level events.
         client.OnReceived += (c, frame) => OnReceived?.Invoke(c, frame);
-
         client.Disconnected += (c, ex) =>
         {
             _clients.TryRemove(clientId, out _);
             ClientDisconnected?.Invoke(c, ex);
         };
 
+        // Notify subscribers that a new client has connected.
         ClientConnected?.Invoke(client);
 
-        // Queue the next accept immediately.
+        // Immediately queue next accept operation.
         AcceptNext(e);
     }
 
     /// <summary>
-    /// Stops the server, closes the listener, and disposes all connected clients.
+    /// Stops the server, closes the listener socket, and disposes all connected clients.
     /// </summary>
     public void Stop()
     {
         if (!_isRunning)
+        {
             return;
+        }
 
         _isRunning = false;
         _cts.Cancel();
@@ -223,7 +235,7 @@ public sealed class FasterServer : IDisposable
         try { _listener.Close(); } catch { }
         try { _acceptArgs?.Dispose(); } catch { }
 
-        // Dispose all connected clients to release sockets and buffers.
+        // Dispose all connected clients to release resources.
         foreach (var kv in _clients)
         {
             try { kv.Value.Dispose(); } catch { }

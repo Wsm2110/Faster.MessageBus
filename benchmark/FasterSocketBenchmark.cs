@@ -1,9 +1,11 @@
 ﻿using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using Faster.Transport;
+using Faster.Transport.Friendly;
+using Faster.Transport.Serialization;
+using MessagePack;
 using System;
 using System.Net;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,7 +23,7 @@ public class FasterSocketBenchmark
     private FasterServer? _server;
     private FasterClient? _client;
 
-    private byte[] _payload = null!;
+    private Memory<byte> _payload = null!;
     private int _messageCount;
     private ManualResetEventSlim _done = null!;
     private int _received;
@@ -30,13 +32,13 @@ public class FasterSocketBenchmark
     /// <summary>
     /// Number of round-trip messages to send.
     /// </summary>
-    [Params(50000)]
+    [Params(10_000)]
     public int MessageCount { get; set; }
 
     /// <summary>
     /// Size of each message payload (bytes).
     /// </summary>
-    [Params(1024)]
+    [Params(20)]
     public int PayloadSize { get; set; }
 
     [GlobalSetup]
@@ -44,61 +46,86 @@ public class FasterSocketBenchmark
     {
         _messageCount = MessageCount;
         _payload = new byte[PayloadSize];
-        new Random(42).NextBytes(_payload);
 
-        _server = new FasterServer(new IPEndPoint(IPAddress.Loopback, 5555));
-        _server.Start();
+        //_server = new FasterServer(new IPEndPoint(IPAddress.Loopback, 5555)); 
+        //_server.Start();
 
-        _done = new ManualResetEventSlim(false);
-        _client = new FasterClient(new IPEndPoint(IPAddress.Loopback, 5555));
+        //_done = new ManualResetEventSlim(false);
+        //_client = new FasterClient(new IPEndPoint(IPAddress.Loopback, 5555));
 
-        _server.OnReceived += async (client, frame) =>
-        {
-            var msg = Encoding.UTF8.GetString(frame.Span);
-            if (!msg.StartsWith("RESP")) // respond only to requests
-            {
-                var reply = Encoding.UTF8.GetBytes("RESP: OK");
-                await client.SendAsync(reply);
-            }
-        };
+        // Optionally send back a response
+        //string reply = $"Server received";
+        //var replyBytes = System.Text.Encoding.UTF8.GetBytes(reply);
+        //_server.OnReceived += async (client, frame) =>
+        //{     
 
+        //    client.TrySend(replyBytes);
+        //};
 
-        _client!.OnReceived += (_, frame) =>
-        {
-            int n = Interlocked.Increment(ref _received);
-            if (n >= _messageCount)
-                tcs.TrySetResult();
-        };
+        //_client!.OnReceived += (_, frame) =>
+        //{
 
+        //};
 
         // give server time to accept
-        Thread.Sleep(200);
+        // Thread.Sleep(200);
     }
 
     [GlobalCleanup]
     public void Cleanup()
     {
         _client?.Dispose();
-        _server?.Dispose();
-        _done.Dispose();
+        _server?.Dispose();       
     }
 
     [Benchmark(Description = "Roundtrip throughput")]
     public async Task RoundTripThroughput()
     {
-       Interlocked.Exchange(ref _received, 0) ;
-        tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        //Interlocked.Exchange(ref _received, 0);
+        ////  tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        int serverCounter = 0;
-  
-        var payloadMem = _payload.AsMemory();
-        for (int i = 0; i < _messageCount; i++)
-            await _client.SendAsync(payloadMem);
+        //for (int i = 0; i < _messageCount; i++)
+        //{
+        //    _client.TrySend(_payload);                   
+        //}
 
-        var completed = await Task.WhenAny(tcs.Task, Task.Delay(10000));
-        if (completed != tcs.Task)
-            throw new TimeoutException("Roundtrip benchmark timed out.");
+        //var completed = await Task.WhenAny(tcs.Task, Task.Delay(10000));
+        //if (completed != tcs.Task)
+        //    throw new TimeoutException("Roundtrip benchmark timed out.");  
 
-        await tcs.Task; // ✅ async wait, no blocking
-     }
+        //await tcs.Task; // ✅ async wait, no blocking
+
+        var perf = new PerformanceMode(HighPriority: true, InlineHandlers: false);
+        var serializer = new MessagePackNetSerializer();
+
+        using var server = Net.Listen("tcp://127.0.0.1:5555", serializer, perf)
+            .On<Trade>((s, t) =>
+            {
+
+            })
+            .Start();
+
+        using var client = Net.Connect("tcp://127.0.0.1:5555", serializer, perf)
+            .On<Trade>((_, t) =>
+            {
+                Console.WriteLine($"got trade {t.Symbol} x{t.Qty} @ {t.Px}");
+            });
+
+        for (int i = 0; i < 100_000; i++)
+        {
+            var res = client.Send(new Trade("MSFT", 100, 351.12m));
+        }
+    }
+
+    /// <summary>
+    /// Represents a simple trade message for high-speed transport.
+    /// Annotated for MessagePack serialization.
+    /// </summary>
+    [MessagePackObject] // Enables code generation and schema-based serialization
+    public record struct Trade(
+        [property: Key(0)] string Symbol, // Symbol name (e.g., "AAPL")
+        [property: Key(1)] int Qty,       // Quantity traded
+        [property: Key(2)] decimal Px     // Trade price
+    );
+
 }

@@ -1,5 +1,4 @@
-﻿using Faster.MessageBus.Features.SocketAsync;
-using NetMQ.Sockets;
+﻿using NetMQ.Sockets;
 
 namespace Faster.MessageBus.Features.Commands;
 
