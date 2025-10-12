@@ -13,7 +13,7 @@ internal class CommandServiceInstaller : IServiceInstaller
         serviceCollection.Configure<MessageBrokerOptions>(options => { });
 
         serviceCollection.AddSingleton<MeshApplication>();
-        serviceCollection.AddTransient<ICommandServer, CommandServer>();
+      //  serviceCollection.AddTransient<ICommandServer, CommandServer>();
         serviceCollection.AddSingleton<ICommandServerHost, CommandServerHost>();
 
         serviceCollection.AddSingleton<ICommandHandlerProvider, CommandHandlerProvider>();
@@ -29,7 +29,7 @@ internal class CommandServiceInstaller : IServiceInstaller
         serviceCollection.AddSingleton<ICommandResponseHandler, CommandResponseHandler>();
 
         serviceCollection.AddScoped<ICommandScope, CommandScope>();
-        serviceCollection.AddScoped<ICommandSocketManager, CommandSocketManager>();
+    //    serviceCollection.AddScoped<ICommandSocketManager, CommandSocketManager>();
 
     }
 }

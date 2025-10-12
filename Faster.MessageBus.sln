@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.Messagebus.Samples.F
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.MessageBus.Samples.Nuget", "samples\Faster.MessageBus.Samples.NugetSample\Faster.MessageBus.Samples.Nuget.csproj", "{BDFCB561-0CD6-4881-BF58-7C69B052236A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Faster.Transport", "Faster.Transport\Faster.Transport.csproj", "{7AE2C7F0-76ED-4D6E-8B74-2EDCDBDD9A40}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -59,6 +61,10 @@ Global
 		{BDFCB561-0CD6-4881-BF58-7C69B052236A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BDFCB561-0CD6-4881-BF58-7C69B052236A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BDFCB561-0CD6-4881-BF58-7C69B052236A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7AE2C7F0-76ED-4D6E-8B74-2EDCDBDD9A40}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7AE2C7F0-76ED-4D6E-8B74-2EDCDBDD9A40}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7AE2C7F0-76ED-4D6E-8B74-2EDCDBDD9A40}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7AE2C7F0-76ED-4D6E-8B74-2EDCDBDD9A40}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

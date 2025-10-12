@@ -1,6 +1,5 @@
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
-using CommandBenchmark;
 
 namespace BenchmarkSuite1
 {
@@ -8,7 +7,7 @@ namespace BenchmarkSuite1
     {
         public static void Main(string[] args)
         {
-            BenchmarkRunner.Run<CommandDispatcherBenchmark>(new DebugInProcessConfig());
+            BenchmarkRunner.Run<FasterSocketBenchmark>(new DebugInProcessConfig());
         }
     }
 }
