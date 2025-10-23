@@ -47,21 +47,13 @@ public sealed class CommandResponseHandler : ICommandResponseHandler
     /// - Frame 2: Response payload (byte[])
     /// - Frame 3: Additional metadata (optional)
     /// </remarks>
-    public void ReceivedFromRouter(object sender, NetMQSocketEventArgs e)
-    {
-        Msg payload = new();
-        payload.InitEmpty();
-
-        e.Socket.TryReceive(ref payload, TimeSpan.Zero);
-        e.Socket.TryReceive(ref payload, TimeSpan.Zero);
-
-        ReadOnlySpan<byte> span = payload.Data;
-
+    public void ReceivedFromRouter(ReadOnlyMemory<byte> payload)
+    {   
         // Fast correlation ID read
-        ulong corrId = MemoryMarshal.Read<ulong>(span);
+        ulong corrId = MemoryMarshal.Read<ulong>(payload.Span);
 
         // Hot path optimization - check size first to avoid dictionary lookup on empty messages
-        if (span.Length == 8)
+        if (payload.Length == 8)
         {
             if (_pending.TryRemove(corrId, out var emptyPending))
             {
@@ -72,10 +64,8 @@ public sealed class CommandResponseHandler : ICommandResponseHandler
 
         // Remove from dictionary immediately to free up space
         if (_pending.TryRemove(corrId, out var pending))
-        {
-            // Zero-copy memory wrapping
-            ReadOnlyMemory<byte> result = new ReadOnlyMemory<byte>(payload.Data, 8, payload.Size - 8);
-            pending.TrySetResult(result);
+        {      
+            pending.TrySetResult(payload.Slice(8,payload.Length - 8));
         }
     }
 }

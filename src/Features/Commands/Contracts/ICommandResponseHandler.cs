@@ -26,7 +26,7 @@ public interface ICommandResponseHandler
     /// </remarks>
     /// <param name="sender">The NetMQ Socket object that fired the event.</param>
     /// <param name="e">The event arguments containing the received message via <c>e.Socket</c>.</param>
-    void ReceivedFromRouter(object sender, NetMQSocketEventArgs e);
+    void ReceivedFromRouter(ReadOnlyMemory<byte> payload);
 
     /// <summary>
     /// Registers a pending reply operation that is awaiting a response.

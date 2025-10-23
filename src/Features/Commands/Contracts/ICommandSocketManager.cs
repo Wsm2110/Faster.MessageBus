@@ -1,7 +1,7 @@
 ﻿using Faster.MessageBus.Features.Commands;
-using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
+using Faster.Transport.Contracts;
 using NetMQ.Sockets;
 
 /// <summary>
@@ -41,15 +41,11 @@ public interface ICommandSocketManager : IDisposable
     /// Only sockets whose routing table contains the specified <paramref name="topic"/> are returned.
     /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
     /// </remarks>
-    IEnumerable<DealerSocket> Get(int count, ulong topic);
+    IEnumerable<IParticleBurst> Get(int count, ulong topic);
 
     /// <summary>
     /// Schedules the removal of the socket for a specified mesh node.
     /// </summary>
     void RemoveSocket(MeshContext meshInfo);
 
-    /// <summary>
-    /// Schedules a command to be sent over a socket.
-    /// </summary>
-    void ScheduleCommand(ScheduleCommand command);
 }

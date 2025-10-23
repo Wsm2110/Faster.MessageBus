@@ -13,6 +13,9 @@ public class CommandDispatcherBenchmark
     private IMessageBroker _broker;
     private ICommand _command;
 
+    [Params(10_000)]
+    public int MessageCount { get; set; }  
+
     [GlobalSetup]
     public void Setup()
     {
@@ -30,9 +33,9 @@ public class CommandDispatcherBenchmark
     public async Task SendMachineCommand()
     {
         var scope = _broker.CommandDispatcher.Machine;
-        for (int i = 0; i < 10000; i++)
+        for (int i = 0; i < MessageCount; i++)
         {
-            await scope.SendAsync(_command, TimeSpan.FromSeconds(1));
+            await scope.SendAsync(_command, TimeSpan.FromSeconds(100));
         }
     }
 }

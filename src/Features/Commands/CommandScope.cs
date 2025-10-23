@@ -5,6 +5,7 @@ using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
 using System.Buffers;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands;
@@ -329,14 +330,19 @@ public class CommandScope(
             commandResponseHandler.RegisterPending(pending); // Register to receive its reply
             requests[requestIndex++] = pending;           // Store in the rented array                                                     
 
-            // Schedule the command to be sent over the socket
-            commandSocketManager.ScheduleCommand(new ScheduleCommand
-            {
-                CorrelationId = pending.CorrelationId,
-                Topic = topic,
-                Socket = socket,
-                Payload = _writer.WrittenMemory
-            });
+            // Allocate stack buffer for header + payload
+            Span<byte> buffer = stackalloc byte[16 + _writer.WrittenMemory.Length];
+
+            // Write Topic and CorrelationId directly
+            Unsafe.As<byte, ulong>(ref buffer[0]) = topic;
+            Unsafe.As<byte, ulong>(ref buffer[8]) = pending.CorrelationId;
+
+            // Copy payload
+            _writer.WrittenMemory.Span.CopyTo(buffer.Slice(16));
+
+            // Convert Span<byte> to ReadOnlyMemory<byte> safely
+            byte[] message = buffer.ToArray();
+            socket.Send((ReadOnlyMemory<byte>)message);
         }
 
         // Link external cancellation with timeout to cancel pending requests
@@ -398,7 +404,7 @@ public class CommandScope(
             // Dispose linked CTS
             _linkedCts?.Dispose();
 
-            _writer.Clear();
+            _writer?.Clear();
 
             for (int i = 0; i < RequestCount; i++)
             {

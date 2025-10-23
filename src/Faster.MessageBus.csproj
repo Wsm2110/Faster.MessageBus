@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net48;net8.0;net9.0</TargetFrameworks>
+		<TargetFrameworks>net9.0</TargetFrameworks>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<LangVersion>Preview</LangVersion>
@@ -41,6 +41,12 @@
 		<PackageReference Include="Microsoft.Extensions.Options" Version="9.0.9" />
 		<PackageReference Include="NetMQ" Version="4.0.2.1" />
 		<PackageReference Include="Scrutor" Version="6.1.0" />
+	</ItemGroup>
+	
+	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+	  <PackageReference Include="Faster.Transport">
+	    <Version>0.0.2</Version>
+	  </PackageReference>
 	</ItemGroup>
 
 	<Target Name="GenerateSnk" BeforeTargets="BeforeBuild" Condition="!Exists('$(ProjectDir)Faster.snk')">

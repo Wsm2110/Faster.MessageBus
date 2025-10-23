@@ -3,10 +3,13 @@ using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
+using Faster.Transport.Contracts;
 using Microsoft.Extensions.Options;
 using NetMQ;
 using NetMQ.Sockets;
+using System;
 using System.Collections.Concurrent;
+using System.Net;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -138,7 +141,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// Only sockets whose routing table contains the specified <paramref name="topic"/> are returned.
     /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
     /// </remarks>
-    public IEnumerable<DealerSocket> Get(int count, ulong topic)
+    public IEnumerable<IParticleBurst> Get(int count, ulong topic)
     {
         int yielded = 0;
         foreach (var pair in _sockets)
@@ -167,14 +170,61 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// The operation is performed on the internal worker thread.
     /// </summary>
     /// <param name="info">The mesh node information used to configure the new socket.</param>
-    public void AddSocket(MeshContext info) => _socketManagerQueue.Enqueue(new SocketCommand(CommandType.AddSocket, info));
+    public void AddSocket(MeshContext context) 
+    {
+        // If the poller is already disposed, we can't add sockets anymore
+        if (_poller.IsDisposed) return;
+
+        // If a socket creation strategy exists, use it to decide whether to create sockets
+        // If the strategy rejects this context, skip socket creation
+        if (_socketStrategy != null && !_socketStrategy.Invoke(context, _options)) return;
+
+        // Create an array of DealerSockets.
+        // If context.Hosts == 0, allocate at least one slot (default).
+        var socketArray = new IParticleBurst[context.Hosts == 0 ? 1 : context.Hosts];
+
+        // Iterate over the host count to create and configure sockets
+        for (sbyte i = 0; i <= context.Hosts; i++)
+        {
+            // Create a DealerSocket (client socket that connects to a Router)
+            var particle = new Faster.Transport.ParticleBuilder()
+                .AsConcurrent()
+                .ConnectTo(new IPEndPoint(IPAddress.Parse(context.Address), context.RpcPort))
+                .OnReceived(_handler.ReceivedFromRouter!)
+                .AsBurst()
+                .BuildBurst();  
+
+            // Store the socket in the array for pooling
+            socketArray[i] = particle;
+        }
+
+        Interlocked.Increment(ref _count);
+
+        // Wrap the created sockets in a pool object
+        var pool = new CommandSocketPool(socketArray);
+
+        // Atomically add or update the socket pool in the dictionary
+        _sockets.AddOrUpdate(context, pool, (key, oldPool) =>
+        {
+            // Clean up old sockets before replacing them
+            foreach (var s in oldPool.Sockets)
+                CleanupSocket(s);
+
+            // Return the new pool
+            return pool;
+        });
+
+    }
 
     /// <summary>
     /// Asynchronously schedules the removal and disposal of the socket for a specified mesh node.
     /// The operation is performed on the internal worker thread.
     /// </summary>
     /// <param name="meshInfo">The mesh node information identifying which socket to remove.</param>
-    public void RemoveSocket(MeshContext meshInfo) => _socketManagerQueue.Enqueue(new SocketCommand(CommandType.RemoveSocket, meshInfo));
+    public void RemoveSocket(MeshContext meshInfo)
+    {
+    
+    }
 
     /// <summary>
     /// Sets the strategy used to validate whether a socket should be created for a given mesh node.
@@ -182,11 +232,6 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// <param name="addMachineSocketStrategy">The validation strategy to apply.</param>
     public void AddSocketValidation(SocketValidationDelegate socketValidationDelegate) => _socketStrategy = socketValidationDelegate;
 
-    /// <summary>
-    /// Asynchronously schedules a command to be serialized and sent over a socket.
-    /// </summary>
-    /// <param name="command">The command containing the socket, topic, correlation ID, and payload to send.</param>
-    public void ScheduleCommand(ScheduleCommand command) => _commandSchedulerQueue.Enqueue(command);
     #endregion
 
     #region Worker Thread Handlers
@@ -200,7 +245,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         if (command.Type == CommandType.AddSocket)
         {
             Interlocked.Increment(ref _count);
-            HandleAddSocket(command.MeshInfo);
+            //HandleAddSocket(command.MeshInfo);
         }
         else if (command.Type == CommandType.RemoveSocket)
         {
@@ -230,66 +275,6 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
 
     #region Internal Socket Logic (Worker Thread ONLY)
 
-    /// <summary>
-    /// Handles the logic for creating and adding a new socket. Must run on the poller thread.
-    /// </summary>
-    /// <summary>
-    /// Handles adding new sockets for a given MeshContext.
-    /// Creates DealerSockets, configures them, connects them to endpoints,
-    /// and updates the internal socket pool atomically.
-    /// </summary>
-    private void HandleAddSocket(MeshContext context)
-    {
-        // If the poller is already disposed, we can't add sockets anymore
-        if (_poller.IsDisposed) return;
-
-        // If a socket creation strategy exists, use it to decide whether to create sockets
-        // If the strategy rejects this context, skip socket creation
-        if (_socketStrategy != null && !_socketStrategy.Invoke(context, _options)) return;
-
-        // Create an array of DealerSockets.
-        // If context.Hosts == 0, allocate at least one slot (default).
-        var socketArray = new DealerSocket[context.Hosts == 0 ? 1 : context.Hosts];
-
-        // Iterate over the host count to create and configure sockets
-        for (sbyte i = 0; i <= context.Hosts; i++)
-        {
-            // Create a DealerSocket (client socket that connects to a Router)
-            var socket = new DealerSocket();
-
-            // Subscribe the socket to the handler that processes messages from the Router
-            socket.ReceiveReady += _handler.ReceivedFromRouter!;
-
-            // Apply custom socket options (timeouts, identities, linger, etc.)
-            setSocketOptions(socket);
-
-            // Determine the endpoint to connect to, based on transport type, context, and index
-            var endpoint = DetermineEndpoint(Transport, context, (byte)i);
-
-            // Connect the DealerSocket to the resolved endpoint
-            socket.Connect(endpoint);
-
-            // Register the socket with the poller so it participates in the event loop
-            _poller.Add(socket);
-
-            // Store the socket in the array for pooling
-            socketArray[i] = socket;
-        }
-
-        // Wrap the created sockets in a pool object
-        var pool = new CommandSocketPool(socketArray);
-
-        // Atomically add or update the socket pool in the dictionary
-        _sockets.AddOrUpdate(context, pool, (key, oldPool) =>
-        {
-            // Clean up old sockets before replacing them
-            foreach (var s in oldPool.Sockets)
-                CleanupSocket(s);
-
-            // Return the new pool
-            return pool;
-        });
-    }
 
     private string DetermineEndpoint(TransportMode transport, MeshContext context, byte count)
     {
@@ -351,8 +336,8 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         {
             foreach (var socket in pool.Sockets)
             {
-                _poller.Remove(socket);
-                CleanupSocket(socket);
+                //_poller.Remove(socket);
+               // CleanupSocket(socket);
             }
         }
     }
@@ -360,10 +345,9 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// <summary>
     /// Unsubscribes event handlers and disposes of a socket. Must run on the poller thread.
     /// </summary>
-    private void CleanupSocket(DealerSocket socket)
-    {
-        if (socket.IsDisposed) return;
-        socket.ReceiveReady -= _handler.ReceivedFromRouter!;
+    private void CleanupSocket(IParticleBurst socket)
+    {  
+        socket.OnReceived -= _handler.ReceivedFromRouter!;
         socket.Dispose();
     }
 
@@ -413,7 +397,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         {
             foreach (var s in pool.Sockets)
             {
-                CleanupSocket(s);
+              //  CleanupSocket(s);
             }
         }
 

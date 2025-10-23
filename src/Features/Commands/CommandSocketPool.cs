@@ -1,4 +1,5 @@
-﻿using NetMQ.Sockets;
+﻿using Faster.Transport.Contracts;
+using NetMQ.Sockets;
 
 namespace Faster.MessageBus.Features.Commands;
 
@@ -8,7 +9,7 @@ namespace Faster.MessageBus.Features.Commands;
 /// </summary>
 internal class CommandSocketPool
 {
-    private readonly DealerSocket[] _sockets;
+    private readonly IParticleBurst[] _sockets;
     private readonly int _count;
     private readonly bool _isPowerOfTwo;
     private readonly int[] _loadCounters; // For least-loaded strategy
@@ -19,7 +20,7 @@ internal class CommandSocketPool
     /// If possible, use power-of-two count for maximum round-robin efficiency.
     /// </summary>
     /// <param name="sockets">Array of initialized DealerSockets.</param>
-    public CommandSocketPool(DealerSocket[] sockets)
+    public CommandSocketPool(IParticleBurst[] sockets)
     {      
         _sockets = sockets;
         _count = sockets.Length;
@@ -31,7 +32,7 @@ internal class CommandSocketPool
     /// Returns a socket using **round-robin**.
     /// Optimized for single socket and power-of-two pool sizes.
     /// </summary>
-    public DealerSocket GetSocket()
+    public IParticleBurst GetSocket()
     {
         // Hot path: single socket
         if (_count == 1)
@@ -60,7 +61,7 @@ internal class CommandSocketPool
     /// <summary>
     /// Returns a socket using **consistent hash** (e.g., by command key or topic).
     /// </summary>
-    public DealerSocket GetSocketByHash(int hash)
+    public IParticleBurst GetSocketByHash(int hash)
     {
         if (_count == 1)
             return _sockets[0];
@@ -78,7 +79,7 @@ internal class CommandSocketPool
     /// <summary>
     /// Returns the socket with the **least load**, optionally incrementing its counter.
     /// </summary>
-    public DealerSocket GetLeastLoadedSocket()
+    public IParticleBurst GetLeastLoadedSocket()
     {
         if (_count == 1)
             return _sockets[0];
@@ -104,7 +105,7 @@ internal class CommandSocketPool
     /// <summary>
     /// Marks a message as completed on a socket (for least-loaded strategy).
     /// </summary>
-    public void ReleaseSocket(DealerSocket socket)
+    public void ReleaseSocket(IParticleBurst socket)
     {
         if (_count == 1) return;
 
@@ -121,6 +122,6 @@ internal class CommandSocketPool
     /// <summary>
     /// Returns all sockets in the pool.
     /// </summary>
-    public IReadOnlyList<DealerSocket> Sockets => _sockets;
+    public IReadOnlyList<IParticleBurst> Sockets => _sockets;
 
 }

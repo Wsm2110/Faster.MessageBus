@@ -156,7 +156,7 @@ namespace Faster.MessageBus.Shared
                             bindAction(port);
                             return port; // success
                         }
-                        catch (NetMQException)
+                        catch (Exception)
                         {
                             continue; // _port taken, try next
                         }
