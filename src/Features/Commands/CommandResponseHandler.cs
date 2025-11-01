@@ -1,5 +1,6 @@
 ﻿using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
+using Faster.Transport.Contracts;
 using NetMQ;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
@@ -47,7 +48,7 @@ public sealed class CommandResponseHandler : ICommandResponseHandler
     /// - Frame 2: Response payload (byte[])
     /// - Frame 3: Additional metadata (optional)
     /// </remarks>
-    public void ReceivedFromRouter(ReadOnlyMemory<byte> payload)
+    public void ReceivedFromRouter(IParticle particle, ReadOnlyMemory<byte> payload)
     {   
         // Fast correlation ID read
         ulong corrId = MemoryMarshal.Read<ulong>(payload.Span);

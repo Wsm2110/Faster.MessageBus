@@ -45,7 +45,7 @@
 	
 	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
 	  <PackageReference Include="Faster.Transport">
-	    <Version>0.0.2</Version>
+	    <Version>0.0.15</Version>
 	  </PackageReference>
 	</ItemGroup>
 

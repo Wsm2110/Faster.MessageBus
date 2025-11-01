@@ -1,4 +1,5 @@
 ﻿using Faster.MessageBus.Features.Commands.Contracts;
+using Faster.Transport;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
@@ -73,7 +74,8 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
         {
             return context.Self;
         });
-        socketManager.Transport = Faster.MessageBus.Shared.TransportMode.Inproc;
+      
+        socketManager.TransportMode = TransportMode.Inproc;
 
         return (scope, commandScope);
     }
@@ -96,8 +98,8 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
             return true;
 
         });
-        socketManager.Transport = Faster.MessageBus.Shared.TransportMode.Ipc;
 
+        socketManager.TransportMode = TransportMode.Ipc;
         return (scope, commandScope);
     }
 
@@ -136,7 +138,8 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
 
             return false;
         });
-        socketManager.Transport = Faster.MessageBus.Shared.TransportMode.Tcp;
+
+        socketManager.TransportMode = TransportMode.Tcp;
 
         return (scope, commandScope);
     }
@@ -151,7 +154,7 @@ public class CommandDispatcher : ICommandDispatcher, IDisposable
 
         var socketManager = scope.ServiceProvider.GetRequiredService<ICommandSocketManager>();
 
-        socketManager.Transport = Faster.MessageBus.Shared.TransportMode.Tcp;
+        socketManager.TransportMode = TransportMode.Tcp;
         // no need for a socket strategy, doesnt have any requirements yet
         return (scope, commandScope);
     }

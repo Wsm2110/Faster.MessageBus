@@ -1,4 +1,5 @@
 ﻿using Faster.MessageBus.Features.Commands.Shared;
+using Faster.Transport.Contracts;
 using NetMQ;
 
 namespace Faster.MessageBus.Features.Commands.Contracts;
@@ -26,7 +27,7 @@ public interface ICommandResponseHandler
     /// </remarks>
     /// <param name="sender">The NetMQ Socket object that fired the event.</param>
     /// <param name="e">The event arguments containing the received message via <c>e.Socket</c>.</param>
-    void ReceivedFromRouter(ReadOnlyMemory<byte> payload);
+    void ReceivedFromRouter(IParticle particle, ReadOnlyMemory<byte> payload);
 
     /// <summary>
     /// Registers a pending reply operation that is awaiting a response.

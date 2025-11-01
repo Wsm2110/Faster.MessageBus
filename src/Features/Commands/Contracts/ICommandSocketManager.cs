@@ -1,6 +1,7 @@
 ﻿using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
+using Faster.Transport;
 using Faster.Transport.Contracts;
 using NetMQ.Sockets;
 
@@ -9,12 +10,12 @@ using NetMQ.Sockets;
 /// </summary>
 public interface ICommandSocketManager : IDisposable
 {
-    TransportMode Transport { get; set; }
-
+    
     /// <summary>
     /// Gets the number of sockets currently being managed.
     /// </summary>
     int Count { get; }
+    TransportMode TransportMode { get; set; }
 
     /// <summary>
     /// Schedules the creation and addition of a new socket for a given mesh node.
@@ -41,7 +42,7 @@ public interface ICommandSocketManager : IDisposable
     /// Only sockets whose routing table contains the specified <paramref name="topic"/> are returned.
     /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
     /// </remarks>
-    IEnumerable<IParticleBurst> Get(int count, ulong topic);
+    IEnumerable<IParticle> Get(int count, ulong topic);
 
     /// <summary>
     /// Schedules the removal of the socket for a specified mesh node.

@@ -3,11 +3,11 @@ using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
+using Faster.Transport;
 using Faster.Transport.Contracts;
 using Microsoft.Extensions.Options;
 using NetMQ;
 using NetMQ.Sockets;
-using System;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Runtime.CompilerServices;
@@ -26,7 +26,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     private static readonly string s_localMachineName = Environment.MachineName.ToLowerInvariant();
     private static readonly string s_localWorkstationName = System.Environment.GetEnvironmentVariables()["COMPUTERNAME"]?.ToString()?.ToLowerInvariant()
         ?? s_localMachineName;
-   
+
     /// <summary>
     /// Defines the type of socket operation to be performed by the worker thread.
     /// </summary>
@@ -60,13 +60,13 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
 
     #region Properties
 
-    public TransportMode Transport { get; set; }
+    public TransportMode TransportMode { get; set; }
 
     #endregion
 
     #region Fields
 
-    private readonly ConcurrentDictionary<MeshContext, CommandSocketPool> _sockets = new();
+    private readonly ConcurrentDictionary<MeshContext, IParticle> _sockets = new();
     private readonly IEventAggregator _eventAggregator;
     private readonly ICommandResponseHandler _handler;
     private readonly IOptions<MessageBrokerOptions> _options;
@@ -141,7 +141,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// Only sockets whose routing table contains the specified <paramref name="topic"/> are returned.
     /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
     /// </remarks>
-    public IEnumerable<IParticleBurst> Get(int count, ulong topic)
+    public IEnumerable<IParticle> Get(int count, ulong topic)
     {
         int yielded = 0;
         foreach (var pair in _sockets)
@@ -152,7 +152,6 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
             }
 
             var context = pair.Key;
-            var pool = pair.Value;
 
             if (!CommandRoutingFilter.TryContains(context.CommandRoutingTable, topic))
             {
@@ -160,7 +159,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
             }
 
             // Use pool.GetSocket() to round-robin across multiple sockets
-            yield return pool.GetSocket();
+            yield return pair.Value;
             yielded++;
         }
     }
@@ -170,7 +169,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// The operation is performed on the internal worker thread.
     /// </summary>
     /// <param name="info">The mesh node information used to configure the new socket.</param>
-    public void AddSocket(MeshContext context) 
+    public void AddSocket(MeshContext context)
     {
         // If the poller is already disposed, we can't add sockets anymore
         if (_poller.IsDisposed) return;
@@ -179,39 +178,46 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         // If the strategy rejects this context, skip socket creation
         if (_socketStrategy != null && !_socketStrategy.Invoke(context, _options)) return;
 
-        // Create an array of DealerSockets.
-        // If context.Hosts == 0, allocate at least one slot (default).
-        var socketArray = new IParticleBurst[context.Hosts == 0 ? 1 : context.Hosts];
+        IParticle particle = null!;
 
-        // Iterate over the host count to create and configure sockets
-        for (sbyte i = 0; i <= context.Hosts; i++)
+        if (TransportMode == TransportMode.Inproc)
         {
             // Create a DealerSocket (client socket that connects to a Router)
-            var particle = new Faster.Transport.ParticleBuilder()
-                .AsConcurrent()
-                .ConnectTo(new IPEndPoint(IPAddress.Parse(context.Address), context.RpcPort))
+            particle = new ParticleBuilder()
+                .UseMode(TransportMode.Inproc)
+                .WithChannel(context.ApplicationName)
                 .OnReceived(_handler.ReceivedFromRouter!)
-                .AsBurst()
-                .BuildBurst();  
-
-            // Store the socket in the array for pooling
-            socketArray[i] = particle;
+                .Build();
         }
+
+        if (TransportMode == TransportMode.Ipc)
+        {
+            // Create a DealerSocket (client socket that connects to a Router)
+            particle = new ParticleBuilder()
+                .UseMode(TransportMode.Ipc)
+                .WithChannel(context.ApplicationName)
+                .OnReceived(_handler.ReceivedFromRouter!)
+                .Build();
+        }
+
+        if (TransportMode == TransportMode.Tcp)
+        {
+            particle = new ParticleBuilder()
+           .UseMode(TransportMode.Tcp)
+           .WithRemote(new IPEndPoint(IPAddress.Parse(context.Address), context.RpcPort))
+           .OnReceived(_handler.ReceivedFromRouter!)
+           .Build();
+        }
+
 
         Interlocked.Increment(ref _count);
 
-        // Wrap the created sockets in a pool object
-        var pool = new CommandSocketPool(socketArray);
-
         // Atomically add or update the socket pool in the dictionary
-        _sockets.AddOrUpdate(context, pool, (key, oldPool) =>
+        _sockets.AddOrUpdate(context, particle, (key, old) =>
         {
-            // Clean up old sockets before replacing them
-            foreach (var s in oldPool.Sockets)
-                CleanupSocket(s);
-
+            old = particle;
             // Return the new pool
-            return pool;
+            return old;
         });
 
     }
@@ -223,7 +229,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// <param name="meshInfo">The mesh node information identifying which socket to remove.</param>
     public void RemoveSocket(MeshContext meshInfo)
     {
-    
+
     }
 
     /// <summary>
@@ -278,19 +284,6 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
 
     private string DetermineEndpoint(TransportMode transport, MeshContext context, byte count)
     {
-        // RULE 1: If it's the same process (same MeshId), use INPROC
-        if (transport == TransportMode.Inproc)
-        {
-            var endpoint = $"inproc://{context.ApplicationName}-{count}";
-            return endpoint;
-        }
-
-        // RULE 2: If it's the same machine (workstation/hostname match), use IPC
-        if (transport == TransportMode.Ipc)
-        {
-            var endpoint = GetIpcEndpoint(context, count);
-            return endpoint;
-        }
 
         // RULE 3: Otherwise, use TCP
         var tcpEndpoint = $"tcp://{context.Address}:{context.RpcPort}";
@@ -332,36 +325,19 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     /// </summary>
     private void HandleRemoveSocket(MeshContext meshInfo)
     {
-        if (_sockets.TryRemove(meshInfo, out var pool))
+        if (_sockets.TryRemove(meshInfo, out var particle))
         {
-            foreach (var socket in pool.Sockets)
-            {
-                //_poller.Remove(socket);
-               // CleanupSocket(socket);
-            }
+            CleanupSocket(particle);
         }
     }
 
     /// <summary>
     /// Unsubscribes event handlers and disposes of a socket. Must run on the poller thread.
     /// </summary>
-    private void CleanupSocket(IParticleBurst socket)
-    {  
+    private void CleanupSocket(IParticle socket)
+    {
         socket.OnReceived -= _handler.ReceivedFromRouter!;
         socket.Dispose();
-    }
-
-    /// <summary>
-    /// Generates IPC endpoint for same-machine communication.
-    /// </summary>
-    private static string GetIpcEndpoint(MeshContext context, uint serverCount)
-    {
-        // Use a deterministic endpoint based on application name and mesh ID
-        // This ensures consistent endpoint across process restarts
-        return $"ipc://{context.ApplicationName}-{serverCount}";
-
-        // Linux alternative (uncomment if needed):
-        // return $"ipc:///tmp/{context.ApplicationName}-{context.MeshId}.ipc";
     }
 
     #endregion
@@ -393,12 +369,9 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         _socketManagerQueue.Dispose();
         _poller.Dispose();
 
-        foreach (var pool in _sockets.Values)
+        foreach (var particle in _sockets.Values)
         {
-            foreach (var s in pool.Sockets)
-            {
-              //  CleanupSocket(s);
-            }
+            CleanupSocket(particle);
         }
 
         _sockets.Clear();

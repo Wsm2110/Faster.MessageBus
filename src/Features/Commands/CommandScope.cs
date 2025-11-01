@@ -342,7 +342,7 @@ public class CommandScope(
 
             // Convert Span<byte> to ReadOnlyMemory<byte> safely
             byte[] message = buffer.ToArray();
-            socket.Send((ReadOnlyMemory<byte>)message);
+            socket.Send(message);
         }
 
         // Link external cancellation with timeout to cancel pending requests

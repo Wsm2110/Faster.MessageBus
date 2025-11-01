@@ -9,7 +9,7 @@ namespace Faster.MessageBus.Features.Commands;
 /// </summary>
 internal class CommandSocketPool
 {
-    private readonly IParticleBurst[] _sockets;
+    private readonly IParticle[] _sockets;
     private readonly int _count;
     private readonly bool _isPowerOfTwo;
     private readonly int[] _loadCounters; // For least-loaded strategy
@@ -20,7 +20,7 @@ internal class CommandSocketPool
     /// If possible, use power-of-two count for maximum round-robin efficiency.
     /// </summary>
     /// <param name="sockets">Array of initialized DealerSockets.</param>
-    public CommandSocketPool(IParticleBurst[] sockets)
+    public CommandSocketPool(IParticle[] sockets)
     {      
         _sockets = sockets;
         _count = sockets.Length;
@@ -32,7 +32,7 @@ internal class CommandSocketPool
     /// Returns a socket using **round-robin**.
     /// Optimized for single socket and power-of-two pool sizes.
     /// </summary>
-    public IParticleBurst GetSocket()
+    public IParticle GetSocket()
     {
         // Hot path: single socket
         if (_count == 1)
@@ -61,7 +61,7 @@ internal class CommandSocketPool
     /// <summary>
     /// Returns a socket using **consistent hash** (e.g., by command key or topic).
     /// </summary>
-    public IParticleBurst GetSocketByHash(int hash)
+    public IParticle GetSocketByHash(int hash)
     {
         if (_count == 1)
             return _sockets[0];
@@ -79,7 +79,7 @@ internal class CommandSocketPool
     /// <summary>
     /// Returns the socket with the **least load**, optionally incrementing its counter.
     /// </summary>
-    public IParticleBurst GetLeastLoadedSocket()
+    public IParticle GetLeastLoadedSocket()
     {
         if (_count == 1)
             return _sockets[0];
@@ -105,7 +105,7 @@ internal class CommandSocketPool
     /// <summary>
     /// Marks a message as completed on a socket (for least-loaded strategy).
     /// </summary>
-    public void ReleaseSocket(IParticleBurst socket)
+    public void ReleaseSocket(IParticle socket)
     {
         if (_count == 1) return;
 
@@ -122,6 +122,6 @@ internal class CommandSocketPool
     /// <summary>
     /// Returns all sockets in the pool.
     /// </summary>
-    public IReadOnlyList<IParticleBurst> Sockets => _sockets;
+    public IReadOnlyList<IParticle> Sockets => _sockets;
 
 }
