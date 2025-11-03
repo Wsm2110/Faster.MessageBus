@@ -10,7 +10,7 @@
 		<!-- NuGet packaging metadata -->
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageId>Faster.Messagebus</PackageId>
-		<Version>0.0.4</Version>
+		<Version>0.0.5</Version>
 		<Authors>Wiljan Ruizendaal</Authors>
 		<Description>A high-performance, low-allocation messaging bus for .NET, built on NetMQ for transport and MessagePack for efficient serialization. Designed for speed and ease of use in distributed systems.</Description>
 		<PackageTags>messaging;message-bus;performance;high-performance;netmq;zeromq;zmq;messagepack;pubsub;publish-subscribe</PackageTags>
@@ -45,7 +45,7 @@
 	
 	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
 	  <PackageReference Include="Faster.Transport">
-	    <Version>0.0.15</Version>
+	    <Version>0.0.17</Version>
 	  </PackageReference>
 	</ItemGroup>
 

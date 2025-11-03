@@ -32,10 +32,10 @@ public class CommandDispatcherBenchmark
     [Benchmark]
     public async Task SendMachineCommand()
     {
-        var scope = _broker.CommandDispatcher.Machine;
+        var scope = _broker.CommandDispatcher.Local;
         for (int i = 0; i < MessageCount; i++)
         {
-            await scope.SendAsync(_command, TimeSpan.FromSeconds(100));
+            await scope.SendAsync(_command, TimeSpan.FromSeconds(1));
         }
     }
 }

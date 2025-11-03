@@ -42,9 +42,6 @@ public sealed class CommandServer(
         var opts = options.Value;
         var appName = opts.ApplicationName;
 
-        // Create shared handler delegate to avoid extra delegate allocations
-        Action<IParticle, ReadOnlyMemory<byte>> recv = ReceivedFromDealer;
-
         // ---------------- TCP ----------------
         var port = PortFinder.BindPort(
             (ushort)opts.RPCPort,
@@ -52,7 +49,7 @@ public sealed class CommandServer(
             port => _tcpServer = new Reactor(new IPEndPoint(IPAddress.Any, port))
         );
 
-        _tcpServer.OnReceived = recv;
+        _tcpServer.OnReceived = ReceivedFromDealer;
         _tcpThread = new Thread(_tcpServer.Start)
         {
             IsBackground = true,
@@ -60,14 +57,14 @@ public sealed class CommandServer(
         };
         _tcpThread.Start();
         meshApplication.RpcPort = (ushort)port;
-                
+
         _ipcThread = new Thread(() =>
         {
-          _ipcServer = new ParticleBuilder()
-          .UseMode(TransportMode.Ipc)
-          .WithChannel(appName, isServer: true)
-          .OnReceived(recv)
-          .Build();
+            _ipcServer = new ParticleBuilder()
+            .UseMode(TransportMode.Ipc)
+            .WithChannel(appName, isServer: true)
+            .OnReceived(ReceivedFromDealer)
+            .Build();
         })
         {
             IsBackground = true,
@@ -75,22 +72,11 @@ public sealed class CommandServer(
         };
         _ipcThread.Start();
 
-        // ---------------- INPROC ----------------
-
-
-        _inprocThread = new Thread(() =>
-        {
-            _inprocServer = new ParticleBuilder()
-                .UseMode(TransportMode.Inproc)
-                .WithChannel(appName, isServer: true)
-                .OnReceived(recv)
-                .Build();
-        })
-        {
-            IsBackground = true,
-            Name = "Reactor-Inproc"
-        };
-        _inprocThread.Start();
+        _inprocServer = new ParticleBuilder()
+            .UseMode(TransportMode.Inproc)
+            .WithChannel(appName, isServer: true)
+            .OnReceived(ReceivedFromDealer)
+            .Build();      
     }
 
     // ===========================

@@ -189,8 +189,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
                 .OnReceived(_handler.ReceivedFromRouter!)
                 .Build();
         }
-
-        if (TransportMode == TransportMode.Ipc)
+        else if (TransportMode == TransportMode.Ipc)
         {
             // Create a DealerSocket (client socket that connects to a Router)
             particle = new ParticleBuilder()
@@ -199,8 +198,7 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
                 .OnReceived(_handler.ReceivedFromRouter!)
                 .Build();
         }
-
-        if (TransportMode == TransportMode.Tcp)
+        else if (TransportMode == TransportMode.Tcp)
         {
             particle = new ParticleBuilder()
            .UseMode(TransportMode.Tcp)
