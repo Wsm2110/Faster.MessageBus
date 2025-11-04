@@ -82,8 +82,6 @@ namespace Faster.MessageBus.Features.Commands
             nuint byteIndex = (nuint)(hash & _bits.Length - 1);
             int bitOffset = (int)hash & POS_MASK;
             byte mask = (byte)(1 << bitOffset);
-
-#if NET48
             unsafe
             {
                 fixed (byte* ptr = _bits)
@@ -94,12 +92,6 @@ namespace Faster.MessageBus.Features.Commands
                     return (old & mask) == 0;
                 }
             }
-#else
-            ref byte b = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_bits), byteIndex);
-            byte old = b;
-            b = (byte)(old | mask);
-            return (old & mask) == 0;
-#endif
         }
 
         /// <summary>
@@ -114,7 +106,6 @@ namespace Faster.MessageBus.Features.Commands
             int bitOffset = (int)hash & POS_MASK;
             byte mask = (byte)(1 << bitOffset);
 
-#if NET48
             unsafe
             {
                 fixed (byte* ptr = _bits)
@@ -123,10 +114,6 @@ namespace Faster.MessageBus.Features.Commands
                     return (*p & mask) != 0;
                 }
             }
-#else
-            ref byte b = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_bits), byteIndex);
-            return (b & mask) != 0;
-#endif
         }
 
         /// <summary>
@@ -184,7 +171,6 @@ namespace Faster.MessageBus.Features.Commands
             int bitOffset = (int)hash & POS_MASK;
             byte mask = (byte)(1 << bitOffset);
 
-#if NET48
             unsafe
             {
                 fixed (byte* ptr = bits)
@@ -193,10 +179,6 @@ namespace Faster.MessageBus.Features.Commands
                     return (*p & mask) != 0;
                 }
             }
-#else
-            ref byte b = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(bits), byteIndex);
-            return (b & mask) != 0;
-#endif
         }
 
         #endregion

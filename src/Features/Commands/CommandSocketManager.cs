@@ -1,69 +1,40 @@
 ﻿using Faster.MessageBus.Contracts;
-using Faster.MessageBus.Features.Commands;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
 using Faster.Transport;
 using Faster.Transport.Contracts;
 using Microsoft.Extensions.Options;
-using NetMQ;
-using NetMQ.Sockets;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+
+namespace Faster.MessageBus.Features.Commands;
 
 /// <summary>
-/// A self-contained, high-performance processor that manages a collection of <see cref="DealerSocket"/> instances
-/// and executes all operations on a dedicated background thread. It uses a struct-based, zero-allocation command
-/// queue for common operations to minimize GC pressure and a dictionary for O(1) socket lookups, ensuring
-/// extreme performance and thread safety via the actor model.
+/// A high-performance, thread-safe manager that maintains active <see cref="IParticle"/> connections
+/// to other nodes in the mesh network.  
+/// 
+/// It subscribes to mesh lifecycle events (`MeshJoined`, `MeshRemoved`) and automatically adds or removes
+/// sockets based on the network topology.  
+/// 
+/// The manager uses <see cref="ConcurrentDictionary{TKey, TValue}"/> for O(1) lookups and minimizes GC pressure
+/// by avoiding intermediate data structures.
 /// </summary>
+/// <example>
+/// Example usage:
+/// <code>
+/// var socketManager = new CommandSocketManager(eventAggregator, responseHandler, options);
+/// socketManager.TransportMode = TransportMode.Tcp;
+/// 
+/// // Retrieve a socket that can handle a specific topic
+/// var socket = socketManager.Get("pc2", topicHash);
+/// if (socket != null)
+///     socket.Send(payload);
+/// </code>
+/// </example>
 public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
 {
-    #region Internal Commands & Queues
-
-    private static readonly string s_localMachineName = Environment.MachineName.ToLowerInvariant();
-    private static readonly string s_localWorkstationName = System.Environment.GetEnvironmentVariables()["COMPUTERNAME"]?.ToString()?.ToLowerInvariant()
-        ?? s_localMachineName;
-
-    /// <summary>
-    /// Defines the type of socket operation to be performed by the worker thread.
-    /// </summary>
-    private enum CommandType { AddSocket, RemoveSocket }
-
-    /// <summary>
-    /// A lightweight, non-allocating struct used to command the worker thread for socket operations.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly struct SocketCommand
-    {
-        public readonly CommandType Type;
-        public readonly MeshContext MeshInfo;
-
-        public SocketCommand(CommandType type, MeshContext meshInfo)
-        {
-            Type = type;
-            MeshInfo = meshInfo;
-        }
-    }
-
-    // The core NetMQ poller that drives the event loop on the worker thread.
-    private readonly NetMQPoller _poller = new();
-    // The dedicated worker thread that runs the poller's event loop.
-    private readonly Thread _pollerThread;
-    // A high-performance queue for sending serialized message commands.
-    private readonly NetMQQueue<ScheduleCommand> _commandSchedulerQueue = new();
-    // A zero-allocation queue for frequent socket management operations like add/remove.
-    private readonly NetMQQueue<SocketCommand> _socketManagerQueue = new();
-    #endregion
-
-    #region Properties
-
-    public TransportMode TransportMode { get; set; }
-
-    #endregion
-
     #region Fields
 
     private readonly ConcurrentDictionary<MeshContext, IParticle> _sockets = new();
@@ -73,22 +44,32 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
     private readonly Action<MeshJoined> _onMeshJoined;
     private readonly Action<MeshRemoved> _onMeshRemoved;
     private SocketValidationDelegate? _socketStrategy;
-    private bool _disposed;
+
+    private volatile bool _disposed;
     private int _count;
 
     #endregion
 
+    #region Properties
+
     /// <summary>
-    /// Gets the number of sockets currently being managed by the processor.
+    /// Gets or sets the transport mode used when creating new sockets (TCP, IPC, or Inproc).
+    /// </summary>
+    public TransportMode TransportMode { get; set; }
+
+    /// <summary>
+    /// Gets the total number of active sockets managed by this instance.
     /// </summary>
     public int Count => _count;
 
+    #endregion
+
+    #region Constructor
+
     /// <summary>
-    /// Initializes a new instance of the <see cref="CommandSocketManager"/> class.
+    /// Initializes a new instance of the <see cref="CommandSocketManager"/> class and subscribes
+    /// to mesh topology events for automatic socket management.
     /// </summary>
-    /// <param name="eventAggregator">The event aggregator for subscribing to mesh lifecycle events.</param>
-    /// <param name="commandReplyHandler">The handler for processing replies from sockets.</param>
-    /// <param name="options">Configuration options for the message broker.</param>  
     public CommandSocketManager(
         IEventAggregator eventAggregator,
         ICommandResponseHandler handler,
@@ -98,24 +79,6 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         _handler = handler;
         _options = options;
 
-        _commandSchedulerQueue.ReceiveReady += OnCommandReceived;
-        _socketManagerQueue.ReceiveReady += OnSocketReceived;
-
-        _poller.Add(_commandSchedulerQueue);
-        _poller.Add(_socketManagerQueue);
-
-        _pollerThread = new Thread(() =>
-        {
-            _poller.Run();
-        })
-        {
-            IsBackground = true,
-            Name = "CommandSocketManagerThread",
-            Priority = ThreadPriority.Highest
-        };
-
-        _pollerThread.Start();
-
         _onMeshJoined = data => AddSocket(data.Info);
         _onMeshRemoved = data => RemoveSocket(data.Info);
 
@@ -123,258 +86,169 @@ public sealed class CommandSocketManager : ICommandSocketManager, IDisposable
         _eventAggregator.Subscribe(_onMeshRemoved);
     }
 
+    #endregion
+
     #region Public API
 
     /// <summary>
-    /// Returns an enumerable collection of managed sockets that are eligible for the given topic, up to the specified count.
+    /// Retrieves a collection of sockets that are eligible to handle the given topic.
     /// </summary>
-    /// <param name="count">The maximum number of sockets to return. Enumeration stops once this count is reached.</param>
-    /// <param name="topic">The topic hash used to filter sockets based on their command routing table.</param>
-    /// <returns>
-    /// An <see cref="IEnumerable{T}"/> of tuples:
-    /// - <c>Id</c>: The unique mesh ID of the socket.
-    /// - <c>Info</c>: The <see cref="MeshContext"/> containing routing and metadata.
-    /// - <c>Socket</c>: The actual <see cref="DealerSocket"/> instance associated with the mesh ID.
-    /// </returns>
-    /// <remarks>
-    /// This method filters sockets using the <see cref="CommandRoutingFilter"/> associated with each socket. 
-    /// Only sockets whose routing table contains the specified <paramref name="topic"/> are returned.
-    /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
-    /// </remarks>
+    /// <param name="count">The maximum number of sockets to return.</param>
+    /// <param name="topic">The topic hash to filter by.</param>
+    /// <returns>An enumerable of <see cref="IParticle"/> instances.</returns>
     public IEnumerable<IParticle> Get(int count, ulong topic)
     {
         int yielded = 0;
+
         foreach (var pair in _sockets)
         {
             if (yielded >= count)
-            {
                 break;
-            }
 
             var context = pair.Key;
 
             if (!CommandRoutingFilter.TryContains(context.CommandRoutingTable, topic))
-            {
                 continue;
-            }
 
-            // Use pool.GetSocket() to round-robin across multiple sockets
             yield return pair.Value;
             yielded++;
         }
     }
 
     /// <summary>
-    /// Asynchronously schedules the creation and addition of a new <see cref="DealerSocket"/> for a given mesh node.
-    /// The operation is performed on the internal worker thread.
+    /// Retrieves a single socket for a specific application and topic, or returns null if none match.
     /// </summary>
-    /// <param name="info">The mesh node information used to configure the new socket.</param>
+    public IParticle? Get(string applicationId, ulong topic)
+    {
+        foreach (var kvp in _sockets)
+        {
+            var context = kvp.Key;
+            if (context.ApplicationName != applicationId)
+                continue;
+
+            if (CommandRoutingFilter.TryContains(context.CommandRoutingTable, topic))
+                return kvp.Value;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Adds a new socket for the given mesh context. If the context already exists, the old socket is replaced.
+    /// </summary>
     public void AddSocket(MeshContext context)
     {
-        // If the poller is already disposed, we can't add sockets anymore
-        if (_poller.IsDisposed) return;
+        if (_disposed)
+            return;
 
-        // If a socket creation strategy exists, use it to decide whether to create sockets
-        // If the strategy rejects this context, skip socket creation
-        if (_socketStrategy != null && !_socketStrategy.Invoke(context, _options)) return;
+        // Apply custom socket validation if registered
+        if (_socketStrategy != null && !_socketStrategy.Invoke(context, _options))
+            return;
 
-        IParticle particle = null!;
+        IParticle particle;
 
-        if (TransportMode == TransportMode.Inproc)
+        // Choose transport type
+        switch (TransportMode)
         {
-            // Create a DealerSocket (client socket that connects to a Router)
-            particle = new ParticleBuilder()
-                .UseMode(TransportMode.Inproc)
-                .WithChannel(context.ApplicationName)
-                .OnReceived(_handler.ReceivedFromRouter!)
-                .Build();
+            case TransportMode.Inproc:
+                particle = new ParticleBuilder()
+                    .UseMode(TransportMode.Inproc)
+                    .WithChannel(context.ApplicationName)
+                    .OnReceived(_handler.ReceivedFromRouter!)
+                    .Build();
+                break;
+
+            case TransportMode.Ipc:
+                particle = new ParticleBuilder()
+                    .UseMode(TransportMode.Ipc)
+                    .WithChannel(context.ApplicationName)
+                    .OnReceived(_handler.ReceivedFromRouter!)
+                    .Build();
+                break;
+
+            case TransportMode.Tcp:
+            default:
+                particle = new ParticleBuilder()
+                    .UseMode(TransportMode.Tcp)
+                    .WithRemote(new IPEndPoint(IPAddress.Parse(context.Address), context.RpcPort))
+                    .OnReceived(_handler.ReceivedFromRouter!)
+                    .Build();
+                break;
         }
-        else if (TransportMode == TransportMode.Ipc)
-        {
-            // Create a DealerSocket (client socket that connects to a Router)
-            particle = new ParticleBuilder()
-                .UseMode(TransportMode.Ipc)
-                .WithChannel(context.ApplicationName)
-                .OnReceived(_handler.ReceivedFromRouter!)
-                .Build();
-        }
-        else if (TransportMode == TransportMode.Tcp)
-        {
-            particle = new ParticleBuilder()
-           .UseMode(TransportMode.Tcp)
-           .WithRemote(new IPEndPoint(IPAddress.Parse(context.Address), context.RpcPort))
-           .OnReceived(_handler.ReceivedFromRouter!)
-           .Build();
-        }
 
-
-        Interlocked.Increment(ref _count);
-
-        // Atomically add or update the socket pool in the dictionary
-        _sockets.AddOrUpdate(context, particle, (key, old) =>
+        _sockets.AddOrUpdate(context, particle, (_, old) =>
         {
-            old = particle;
-            // Return the new pool
-            return old;
+            old.Dispose();
+            return particle;
         });
 
+        Interlocked.Increment(ref _count);
     }
 
     /// <summary>
-    /// Asynchronously schedules the removal and disposal of the socket for a specified mesh node.
-    /// The operation is performed on the internal worker thread.
+    /// Removes and disposes of the socket associated with the specified mesh node.
     /// </summary>
-    /// <param name="meshInfo">The mesh node information identifying which socket to remove.</param>
-    public void RemoveSocket(MeshContext meshInfo)
+    public void RemoveSocket(MeshContext context)
     {
-
-    }
-
-    /// <summary>
-    /// Sets the strategy used to validate whether a socket should be created for a given mesh node.
-    /// </summary>
-    /// <param name="addMachineSocketStrategy">The validation strategy to apply.</param>
-    public void AddSocketValidation(SocketValidationDelegate socketValidationDelegate) => _socketStrategy = socketValidationDelegate;
-
-    #endregion
-
-    #region Worker Thread Handlers
-
-    /// <summary>
-    /// Processes socket management commands (TryAdd/TryRemove) from the socket command queue. Must run on the poller thread.
-    /// </summary>
-    private void OnSocketReceived(object? sender, NetMQQueueEventArgs<SocketCommand> e)
-    {
-        var command = _socketManagerQueue.Dequeue();
-        if (command.Type == CommandType.AddSocket)
-        {
-            Interlocked.Increment(ref _count);
-            //HandleAddSocket(command.MeshInfo);
-        }
-        else if (command.Type == CommandType.RemoveSocket)
-        {
-            Interlocked.Decrement(ref _count);
-            HandleRemoveSocket(command.MeshInfo);
-        }
-    }
-
-    /// <summary>
-    /// Processes outbound message commands from the message queue. Must run on the poller thread.
-    /// </summary>
-    private void OnCommandReceived(object? sender, NetMQQueueEventArgs<ScheduleCommand> e)
-    {
-        var command = _commandSchedulerQueue.Dequeue();
-
-        Span<byte> buffer = stackalloc byte[16 + command.Payload.Length];
-
-        // Write Topic and CorrelationId directly
-        Unsafe.As<byte, ulong>(ref buffer[0]) = command.Topic;
-        Unsafe.As<byte, ulong>(ref buffer[8]) = command.CorrelationId;
-
-        // Copy payload
-        command.Payload.Span.CopyTo(buffer.Slice(16));
-        command.Socket.SendSpanFrame(buffer);
-    }
-    #endregion
-
-    #region Internal Socket Logic (Worker Thread ONLY)
-
-
-    private string DetermineEndpoint(TransportMode transport, MeshContext context, byte count)
-    {
-
-        // RULE 3: Otherwise, use TCP
-        var tcpEndpoint = $"tcp://{context.Address}:{context.RpcPort}";
-        return tcpEndpoint;
-    }
-
-    private void setSocketOptions(DealerSocket dealer)
-    {
-        dealer.Options.Identity = DealerIdentityGenerator.Create();
-        dealer.Options.Linger = TimeSpan.Zero;
-
-        // Massive watermarks - never block under load
-        // Default is 1000, we use 5M for market data bursts
-        dealer.Options.SendHighWatermark = 5_000_000;
-        dealer.Options.ReceiveHighWatermark = 5_000_000;
-
-        // HUGE OS-level buffers - reduces syscall overhead dramatically
-        // Default is 8KB, we use 8MB (1000x larger)
-        // More data per syscall = fewer context switches
-        dealer.Options.SendBuffer = 8_388_608;      // 8MB kernel buffer
-        dealer.Options.ReceiveBuffer = 8_388_608;
-        dealer.Options.Backlog = 1024;
-
-        // TCP keepalive - detect dead connections quickly
-        dealer.Options.TcpKeepalive = true;
-        dealer.Options.TcpKeepaliveIdle = TimeSpan.FromSeconds(30);
-        dealer.Options.TcpKeepaliveInterval = TimeSpan.FromSeconds(10);
-
-        // IPv4 only - eliminates IPv6 DNS resolution overhead (~100-500μs)
-        dealer.Options.IPv4Only = true;
-
-        // Fast reconnection - critical for exchange disconnections
-        dealer.Options.ReconnectInterval = TimeSpan.FromMilliseconds(10);
-        dealer.Options.ReconnectIntervalMax = TimeSpan.FromSeconds(5);
-    }
-
-    /// <summary>
-    /// Handles the logic for removing and disposing of a socket. Must run on the poller thread.
-    /// </summary>
-    private void HandleRemoveSocket(MeshContext meshInfo)
-    {
-        if (_sockets.TryRemove(meshInfo, out var particle))
+        if (_sockets.TryRemove(context, out var particle))
         {
             CleanupSocket(particle);
+            Interlocked.Decrement(ref _count);
         }
     }
 
     /// <summary>
-    /// Unsubscribes event handlers and disposes of a socket. Must run on the poller thread.
+    /// Defines a validation delegate that determines whether a socket should be created for a given node.
     /// </summary>
+    public void AddSocketValidation(SocketValidationDelegate socketValidationDelegate)
+    {
+        _socketStrategy = socketValidationDelegate;
+    }
+
+    #endregion
+
+    #region Internal Helpers
+
+    /// <summary>
+    /// Disposes of a socket safely and detaches event handlers.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void CleanupSocket(IParticle socket)
     {
-        socket.OnReceived -= _handler.ReceivedFromRouter!;
-        socket.Dispose();
+        try
+        {
+            socket.OnReceived -= _handler.ReceivedFromRouter!;
+            socket.Dispose();
+        }
+        catch
+        {
+            // Ignore shutdown races
+        }
     }
 
     #endregion
 
     #region Disposal
+
     /// <summary>
-    /// Disposes the processor and all managed resources. This method gracefully shuts down the worker
-    /// thread, cleans up all sockets, and disposes of all NetMQ objects.
+    /// Gracefully disposes of all managed sockets and unsubscribes from mesh events.
     /// </summary>
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+            return;
         _disposed = true;
 
         _eventAggregator.Unsubscribe(_onMeshJoined);
         _eventAggregator.Unsubscribe(_onMeshRemoved);
 
-        if (_poller.IsRunning)
-        {
-            _poller.StopAsync();
-        }
-
-        if (_pollerThread.IsAlive)
-        {
-            _pollerThread.Join();
-        }
-
-        _commandSchedulerQueue.Dispose();
-        _socketManagerQueue.Dispose();
-        _poller.Dispose();
-
         foreach (var particle in _sockets.Values)
-        {
             CleanupSocket(particle);
-        }
 
         _sockets.Clear();
 
         GC.SuppressFinalize(this);
     }
+
     #endregion
 }

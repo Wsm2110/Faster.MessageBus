@@ -9,12 +9,15 @@ using NetMQ.Sockets;
 /// Defines the contract for a command processor that manages socket lifecycles and command scheduling.
 /// </summary>
 public interface ICommandSocketManager : IDisposable
-{
-    
+{    
     /// <summary>
     /// Gets the number of sockets currently being managed.
     /// </summary>
     int Count { get; }
+
+    /// <summary>
+    /// 
+    /// </summary>
     TransportMode TransportMode { get; set; }
 
     /// <summary>
@@ -43,6 +46,14 @@ public interface ICommandSocketManager : IDisposable
     /// Enumeration stops as soon as <paramref name="count"/> sockets are yielded, even if more eligible sockets exist.
     /// </remarks>
     IEnumerable<IParticle> Get(int count, ulong topic);
+
+    /// <summary>
+    /// Target a specific application 
+    /// </summary>
+    /// <param name="nodeId"></param>
+    /// <param name="topic"></param>
+    /// <returns></returns>
+    IParticle Get(string applicationId, ulong topic);
 
     /// <summary>
     /// Schedules the removal of the socket for a specified mesh node.

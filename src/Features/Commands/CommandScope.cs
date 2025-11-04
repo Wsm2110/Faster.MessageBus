@@ -1,11 +1,9 @@
-﻿using CommunityToolkit.HighPerformance;
-using CommunityToolkit.HighPerformance.Buffers;
+﻿using CommunityToolkit.HighPerformance.Buffers;
 using Faster.MessageBus.Contracts;
 using Faster.MessageBus.Features.Commands.Contracts;
 using Faster.MessageBus.Features.Commands.Shared;
 using Faster.MessageBus.Shared;
 using System.Buffers;
-using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 
 namespace Faster.MessageBus.Features.Commands;
@@ -22,7 +20,7 @@ public class CommandScope(
 {
     // Cached exception instances for performance optimization to avoid frequent allocations
     private static readonly OperationCanceledException s_cachedOperationCanceledException = new("Operation was canceled due to timeout.");
-    private static readonly ObjectPool _pool = new(1024);
+    private static readonly ObjectPool _pool = new(4096);
 
     /// <summary>
     /// Prepares a strongly-typed command for dispatch, returning a scope builder
@@ -52,6 +50,177 @@ public class CommandScope(
     {
         return new CommandScopeBuilder(this, command);
     }
+
+    /// <summary>
+    /// Sends a command to a specific target application socket and awaits a typed response.
+    /// </summary>
+    /// <typeparam name="TResponse">The expected type of the response.</typeparam>
+    /// <param name="applicationId">The unique identifier (ApplicationName) of the target socket.</param>
+    /// <param name="command">The command instance to send.</param>
+    /// <param name="timeout">The maximum duration to wait for a response before timing out.</param>
+    /// <param name="ct">An optional <see cref="CancellationToken"/> to cancel the operation externally.</param>
+    /// <returns>
+    /// A task representing the asynchronous operation. The result contains the deserialized response of type <typeparamref name="TResponse"/>.
+    /// </returns>
+    /// <exception cref="KeyNotFoundException">Thrown when the specified socket cannot be found.</exception>
+    /// <exception cref="OperationCanceledException">Thrown if the operation times out or is canceled.</exception>
+    /// <remarks>
+    /// This method is designed for **point-to-point messaging** when you need to send a command
+    /// directly to a specific application node identified by <paramref name="applicationId"/>.
+    /// It ensures minimal overhead by using stack-allocated buffers and pooled memory writers.
+    ///
+    /// The payload is serialized once and transmitted with a 16-byte header (topic + correlation ID)
+    /// for ultra-fast routing and correlation handling.
+    /// </remarks>
+    /// <example>
+    /// The following example demonstrates how to send a command to a specific application and await a typed response:
+    /// <code>
+    /// var command = new GetStatusCommand();
+    /// var timeout = TimeSpan.FromSeconds(3);
+    ///
+    /// // Send the command to "pc2" and wait for the typed response
+    /// var response = await commandScope.SendToAsync&lt;StatusResponse&gt;("pc2", command, timeout);
+    ///
+    /// Console.WriteLine($"Received status: {response.State}");
+    /// </code>
+    /// </example>
+    public async Task<TResponse> SendToAsync<TResponse>(
+        string applicationId,
+        ICommand<TResponse> command,
+        TimeSpan timeout,
+        CancellationToken ct = default)
+    {
+        // Ensure sockets exist
+        if (commandSocketManager.Count == 0)
+            throw new KeyNotFoundException("No sockets are currently registered.");
+
+        // Derive topic hash from command type
+        var concreteType = command.GetType();
+        var topic = WyHash.Hash(concreteType.Name);
+
+        // Retrieve the specific socket for this app and topic
+        var socket = commandSocketManager.Get(applicationId, topic)
+            ?? throw new KeyNotFoundException($"No socket found for application '{applicationId}' and topic '{topic}'.");
+
+        // Serialize the command payload into a pooled buffer
+        ArrayPoolBufferWriter<byte> writer = new();
+        serializer.Serialize(command, concreteType, writer);
+
+        // Rent a PendingReply for async response tracking
+        var pending = _pool.Rent();
+        try
+        {
+            commandResponseHandler.RegisterPending(pending);
+
+            // Header: [0..7]=Topic, [8..15]=CorrelationId
+            Span<byte> buffer = stackalloc byte[16 + writer.WrittenMemory.Length];
+            Unsafe.As<byte, ulong>(ref buffer[0]) = topic;
+            Unsafe.As<byte, ulong>(ref buffer[8]) = pending.CorrelationId;
+            writer.WrittenMemory.Span.CopyTo(buffer.Slice(16));
+
+            // Send over NetMQ DealerSocket
+            socket.Send(buffer.ToArray());
+
+            // Setup cancellation + timeout
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linkedCts.CancelAfter(timeout);
+            using var reg = linkedCts.Token.Register(() =>
+                pending.SetException(s_cachedOperationCanceledException));
+
+            // Await and deserialize the response
+            ReadOnlyMemory<byte> respBytes = await pending.AsValueTask().ConfigureAwait(false);
+            if (respBytes.Length == 0)
+                return default!; // Valid for "no handler" scenario
+
+            return serializer.Deserialize<TResponse>(respBytes);
+        }
+        finally
+        {
+            // Cleanup: always unregister and return pooled objects
+            commandResponseHandler.TryUnregister(pending.CorrelationId);
+            writer.Clear();
+            _pool.Return(pending);
+        }
+    }
+
+    /// <summary>
+    /// Sends a command to a specific application socket and awaits completion without expecting a response.
+    /// </summary>
+    /// <param name="applicationId">The unique identifier (ApplicationName) of the target socket.</param>
+    /// <param name="command">The command instance to send.</param>
+    /// <param name="timeout">The maximum duration to wait before timing out.</param>
+    /// <param name="ct">An optional <see cref="CancellationToken"/> for external cancellation.</param>
+    /// <returns>A task representing the asynchronous send operation.</returns>
+    /// <exception cref="KeyNotFoundException">Thrown when the specified socket cannot be found.</exception>
+    /// <exception cref="OperationCanceledException">Thrown if the operation times out or is canceled.</exception>
+    /// <remarks>
+    /// This overload is ideal for **fire-and-forget** or **notification-style** commands that do not return a value.
+    /// It ensures the message is sent and acknowledged within the specified timeout.
+    /// 
+    /// Internally, the method constructs a minimal NetMQ frame containing a 16-byte header followed by the serialized payload.
+    /// </remarks>
+    /// <example>
+    /// The following example sends a "ping" command to another workstation and waits for acknowledgment:
+    /// <code>
+    /// var ping = new PingCommand();
+    /// await commandScope.SendToAsync("pc3", ping, TimeSpan.FromSeconds(2));
+    /// Console.WriteLine("Ping acknowledged by pc3");
+    /// </code>
+    /// </example>
+    public async Task SendToAsync(
+        string applicationId,
+        ICommand command,
+        TimeSpan timeout,
+        CancellationToken ct = default)
+    {
+        // Ensure at least one socket exists
+        if (commandSocketManager.Count == 0)
+            throw new KeyNotFoundException("No sockets are currently registered.");
+
+        // Compute topic for routing
+        var concreteType = command.GetType();
+        var topic = WyHash.Hash(concreteType.Name);
+
+        // Find target socket
+        var socket = commandSocketManager.Get(applicationId, topic)
+            ?? throw new KeyNotFoundException($"No socket found for application '{applicationId}' and topic '{topic}'.");
+
+        // Serialize payload
+        ArrayPoolBufferWriter<byte> writer = new();
+        serializer.Serialize(command, concreteType, writer);
+
+        // Rent pending tracker
+        var pending = _pool.Rent();
+        try
+        {
+            commandResponseHandler.RegisterPending(pending);
+
+            // Create message header
+            Span<byte> buffer = stackalloc byte[16 + writer.WrittenMemory.Length];
+            Unsafe.As<byte, ulong>(ref buffer[0]) = topic;
+            Unsafe.As<byte, ulong>(ref buffer[8]) = pending.CorrelationId;
+            writer.WrittenMemory.Span.CopyTo(buffer.Slice(16));
+
+            // Send to remote peer
+            socket.Send(buffer.ToArray());
+
+            // Setup cancellation
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linkedCts.CancelAfter(timeout);
+            using var reg = linkedCts.Token.Register(() =>
+                pending.SetException(s_cachedOperationCanceledException));
+
+            // Await completion acknowledgement (ignore payload)
+            _ = await pending.AsValueTask().ConfigureAwait(false);
+        }
+        finally
+        {
+            commandResponseHandler.TryUnregister(pending.CorrelationId);
+            writer.Clear();
+            _pool.Return(pending);
+        }
+    }
+
 
     /// <summary>
     /// Sends a command to all listening endpoints on the local machine and returns an
@@ -124,12 +293,7 @@ public class CommandScope(
                 }
 
                 val = serializer.Deserialize<TResponse>(respBytes);
-            }
-            //catch (OperationCanceledException e)
-            //{
-            //    // Catch any other unexpected exceptions.
-            //    OnTimeout?.Invoke(e, pending.Target); // Use OnTimeout for general exceptions too, or create a new callback.           
-            //}
+            }          
             finally
             {
                 commandResponseHandler.TryUnregister(pending.CorrelationId);
@@ -175,15 +339,7 @@ public class CommandScope(
         for (int i = 0; i < context.RequestCount; i++)
         {
             var pending = context.Requests[i];
-            try
-            {
-                await pending.AsValueTask().ConfigureAwait(false);
-            }
-            catch (OperationCanceledException e)
-            {
-                commandResponseHandler.TryUnregister(pending.CorrelationId);
-                OnTimeout?.Invoke(e, pending.Target);
-            }
+            await pending.AsValueTask().ConfigureAwait(false);
         }
     }
 
@@ -271,17 +427,7 @@ public class CommandScope(
 
                 TResponse response = serializer.Deserialize<TResponse>(respBytes);
                 val = response; // Implicit conversion from TResponse to Result<TResponse>.Success
-            }
-            catch (OperationCanceledException)
-            {
-                // Use cached exception for performance
-                val = (Result<TResponse>)s_cachedOperationCanceledException; // Explicit conversion from Exception to Result<TResponse>.Failure
-            }
-            catch (Exception e)
-            {
-                // Catch any other unexpected exceptions
-                val = (Result<TResponse>)e; // Explicit conversion from Exception to Result<TResponse>.Failure
-            }
+            }      
             finally
             {
                 commandResponseHandler.TryUnregister(pending.CorrelationId);

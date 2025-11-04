@@ -1,56 +1,66 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-	<PropertyGroup>
-		<TargetFrameworks>net9.0</TargetFrameworks>
-		<ImplicitUsings>enable</ImplicitUsings>
-		<Nullable>enable</Nullable>
-		<LangVersion>Preview</LangVersion>
-		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  <PropertyGroup>
+    <TargetFrameworks>net48;netstandard2.0;netstandard2.1;net9.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>Preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
-		<!-- NuGet packaging metadata -->
-		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-		<PackageId>Faster.Messagebus</PackageId>
-		<Version>0.0.5</Version>
-		<Authors>Wiljan Ruizendaal</Authors>
-		<Description>A high-performance, low-allocation messaging bus for .NET, built on NetMQ for transport and MessagePack for efficient serialization. Designed for speed and ease of use in distributed systems.</Description>
-		<PackageTags>messaging;message-bus;performance;high-performance;netmq;zeromq;zmq;messagepack;pubsub;publish-subscribe</PackageTags>
-		<RepositoryUrl>https://github.com/Wsm2110/Faster.Messagebus</RepositoryUrl>
-		<PackageProjectUrl>https://github.com/Wsm2110/Faster.Messagebus</PackageProjectUrl>
-		<RepositoryType>git</RepositoryType>
-		<PackageLicenseExpression>MIT</PackageLicenseExpression>
-		<PackageReadmeFile>README.md</PackageReadmeFile>
-		<AssemblyOriginatorKeyFile>Faster.snk</AssemblyOriginatorKeyFile>
+    <!-- NuGet packaging metadata -->
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>Faster.Messagebus</PackageId>
+    <Version>0.0.7</Version>
+    <Authors>Wiljan Ruizendaal</Authors>
+    <Description>A high-performance, low-allocation messaging bus for .NET, built on NetMQ for transport and MessagePack for efficient serialization. Designed for speed and ease of use in distributed systems.</Description>
+    <PackageTags>messaging;message-bus;performance;high-performance;netmq;zeromq;zmq;messagepack;pubsub;publish-subscribe</PackageTags>
+    <RepositoryUrl>https://github.com/Wsm2110/Faster.Messagebus</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Wsm2110/Faster.Messagebus</PackageProjectUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <AssemblyOriginatorKeyFile>Faster.snk</AssemblyOriginatorKeyFile>
     <SignAssembly>true</SignAssembly>
-    
-		<!-- Debugging & SourceLink -->
-		<PublishRepositoryUrl>true</PublishRepositoryUrl>
-		<EmbedUntrackedSources>true</EmbedUntrackedSources>
-		<IncludeSymbols>true</IncludeSymbols>
-		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
-	</PropertyGroup>
 
-	<ItemGroup>
-		<None Include="..\README.md" Pack="true" PackagePath="\" />
-	</ItemGroup>
-	
-	<ItemGroup>
-		<PackageReference Include="CommunityToolkit.HighPerformance" Version="8.4.0" />
-		<PackageReference Include="MessagePack" Version="3.1.4" />
-		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
-		<PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
-		<PackageReference Include="Microsoft.Extensions.Options" Version="9.0.9" />
-		<PackageReference Include="NetMQ" Version="4.0.2.1" />
-		<PackageReference Include="Scrutor" Version="6.1.0" />
-	</ItemGroup>
-	
-	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
-	  <PackageReference Include="Faster.Transport">
-	    <Version>0.0.17</Version>
-	  </PackageReference>
-	</ItemGroup>
+    <!-- Debugging & SourceLink -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
 
-	<Target Name="GenerateSnk" BeforeTargets="BeforeBuild" Condition="!Exists('$(ProjectDir)Faster.snk')">
-		<Exec Command="powershell -ExecutionPolicy Bypass -Command ^&#xD;&#xA;    $csp = New-Object System.Security.Cryptography.RSACryptoServiceProvider(2048); ^&#xD;&#xA;    $bytes = $csp.ExportCspBlob($true); ^&#xD;&#xA;    [System.IO.File]::WriteAllBytes('$(ProjectDir)Faster.snk', $bytes)" />
-	</Target>
-	
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Common references -->
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.HighPerformance" Version="8.4.*" />
+    <PackageReference Include="Faster.Transport" Version="0.0.*" />
+    <PackageReference Include="MessagePack" Version="3.1.*" />
+    <PackageReference Include="NetMQ" Version="4.0.2.*" />
+    <PackageReference Include="Scrutor" Version="6.1.*" />
+  </ItemGroup>
+
+  <!-- Framework-specific Microsoft.Extensions versions -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="6.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="6.0.*" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1' OR '$(TargetFramework)' == 'net9.0'">
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.*" />
+  </ItemGroup>
+
+  <!-- Generate strong-name key if missing -->
+  <Target Name="GenerateSnk" BeforeTargets="BeforeBuild" Condition="!Exists('$(ProjectDir)Faster.snk')">
+    <Exec Command="powershell -ExecutionPolicy Bypass -Command ^
+        $csp = New-Object System.Security.Cryptography.RSACryptoServiceProvider(2048); ^
+        $bytes = $csp.ExportCspBlob($true); ^
+        [System.IO.File]::WriteAllBytes('$(ProjectDir)Faster.snk', $bytes)" />
+  </Target>
+
 </Project>
